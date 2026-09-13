@@ -1,0 +1,43 @@
+ParalivesAccess's original source code is Copyright (c) 2026 Florian Beijers,
+licensed under MIT; see LICENSE. Third-party and adapted material retains its
+own licenses below. This source repository contains no binaries or game files.
+The downloadable release includes the runtime components listed below.
+
+Third-party notices for ParalivesAccess
+
+BepInEx 5.4.23.5: https://github.com/BepInEx/BepInEx/tree/v5.4.23.5
+License: licenses/BepInEx/LICENSE
+
+Unity Doorstop 4.5.0: https://github.com/NeighTools/UnityDoorstop/tree/v4.5.0
+License: licenses/UnityDoorstop/LICENSE
+
+Prism 0.17.3, unmodified native library:
+https://github.com/ethindp/prism/tree/v0.17.3
+Corresponding source archive:
+https://github.com/ethindp/prism/archive/refs/tags/v0.17.3.zip
+The upstream LICENSE, NOTICE and complete LICENSES tree are preserved under
+licenses/Prism. This includes MPL-2.0 and the upstream dependency attributions.
+The optional Tolk compatibility shim is not included.
+
+HarmonyX 2.9.0: https://github.com/BepInEx/HarmonyX/tree/v2.9.0
+Original Harmony attribution is preserved alongside the HarmonyX license.
+Licenses: licenses/HarmonyX/LICENSE and licenses/HarmonyX/LICENSE.Harmony
+
+Harmony interoperability assemblies:
+https://github.com/BepInEx/BepInEx.Harmony/tree/d4cdcb4cdeac14a0b77012165f5f5a9f5032a9fa
+License: licenses/HarmonyInterop/LICENSE
+
+MonoMod 22.01.29.01: https://github.com/MonoMod/MonoMod/tree/v22.01.29.01
+License: licenses/MonoMod/LICENSE
+
+Mono.Cecil 0.10.4: https://github.com/jbevain/cecil/tree/0.10.4
+License: licenses/Mono.Cecil/LICENSE.txt
+
+Accessibility Mod Template by Happy Starfish, adapted for ParalivesAccess by
+Florian Beijers. Original project: https://github.com/HappyStarfish/Accessibility-mod-template
+Changes include Paralives-specific input, UI navigation, speech and runtime integration.
+The template's original attribution and license are retained in
+licenses/Template-CC-BY-4.0.txt. Dependency licenses apply to
+their respective components; the template notice does not replace them.
+
+Exact upstream license-file URLs are recorded in LICENSE-SOURCES.json.

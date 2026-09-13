@@ -1,0 +1,90 @@
+[
+  {
+    "Path": "licenses/Prism/LICENSE",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSE",
+    "GitBlob": "fe0682f9fe547b7a88592d6cae7f9813fdabd6d2"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/concurrentqueue/LICENSE.md",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/concurrentqueue/LICENSE.md",
+    "GitBlob": "519338976fb87d97b6b226738ece30f592a21bbb"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/djinni/LICENSE",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/djinni/LICENSE",
+    "GitBlob": "d645695673349e3947e8e5ae42332d0ac3164cd7"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/dr_wav/LICENSE",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/dr_wav/LICENSE",
+    "GitBlob": "16dfbdfda2b761d1ec2ed57266dbdc777349ad25"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/fmt/LICENSE",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/fmt/LICENSE",
+    "GitBlob": "795fdaec8f2ce6fcc97bbb15d1a6ac073af7bd17"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/moderncom/AUTHORS.md",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/moderncom/AUTHORS.md",
+    "GitBlob": "81de6905804a352dfae116321957218fc490342b"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/moderncom/LICENSE",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/moderncom/LICENSE",
+    "GitBlob": "9cd8108a71359cf70793559f0edfcbf46cb35a8a"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/nvdaController/lgpl-2.1.txt",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/nvdaController/lgpl-2.1.txt",
+    "GitBlob": "62ac6ff2a6433b63ff35a06160d18c9b1fedfc18"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/nvgt/LICENSE.md",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/nvgt/LICENSE.md",
+    "GitBlob": "58a61395964d65a93565fa0d12a859a4f36292ae"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/prism/mpl-2.0.txt",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/prism/mpl-2.0.txt",
+    "GitBlob": "c42155d40e519d106dfaec2e7fc8e307aa8474d1"
+  },
+  {
+    "Path": "licenses/Prism/LICENSES/simdutf/apache-2.0.txt",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/LICENSES/simdutf/apache-2.0.txt",
+    "GitBlob": "33666dddf769353b76c10d87bef9d11f3ba08325"
+  },
+  {
+    "Path": "licenses/Prism/NOTICE",
+    "Source": "https://raw.githubusercontent.com/ethindp/prism/v0.17.3/NOTICE",
+    "GitBlob": "c1b509639d62576be60f5896ae52ee21d50da36a"
+  },
+  {
+    "Path": "licenses/BepInEx/LICENSE",
+    "Source": "https://raw.githubusercontent.com/BepInEx/BepInEx/v5.4.23.5/LICENSE"
+  },
+  {
+    "Path": "licenses/HarmonyX/LICENSE",
+    "Source": "https://raw.githubusercontent.com/BepInEx/HarmonyX/v2.9.0/LICENSE"
+  },
+  {
+    "Path": "licenses/HarmonyX/LICENSE.Harmony",
+    "Source": "https://raw.githubusercontent.com/BepInEx/HarmonyX/v2.9.0/LICENSE.Harmony"
+  },
+  {
+    "Path": "licenses/MonoMod/LICENSE",
+    "Source": "https://raw.githubusercontent.com/MonoMod/MonoMod/v22.01.29.01/LICENSE"
+  },
+  {
+    "Path": "licenses/Mono.Cecil/LICENSE.txt",
+    "Source": "https://raw.githubusercontent.com/jbevain/cecil/0.10.4/LICENSE.txt"
+  },
+  {
+    "Path": "licenses/UnityDoorstop/LICENSE",
+    "Source": "https://raw.githubusercontent.com/NeighTools/UnityDoorstop/v4.5.0/LICENSE"
+  },
+  {
+    "Path": "licenses/HarmonyInterop/LICENSE",
+    "Source": "https://raw.githubusercontent.com/BepInEx/BepInEx.Harmony/d4cdcb4cdeac14a0b77012165f5f5a9f5032a9fa/LICENSE"
+  }
+]
