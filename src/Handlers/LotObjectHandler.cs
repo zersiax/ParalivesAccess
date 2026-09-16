@@ -137,6 +137,16 @@ namespace ParalivesAccess.Handlers
                     return;
                 }
 
+                // Cleaning/removal can invalidate the focused row while other targets remain.
+                // Move logical focus before accepting another Enter on the vanished target.
+                if (_panel.Current == null && _panel.AvailableCount > 0)
+                {
+                    _enterPressed = false;
+                    LotBuildInputOwnership.HoldThroughCurrentFrame();
+                    _panel.Move(1);
+                    return;
+                }
+
                 if (keyboard.backspaceKey.wasPressedThisFrame)
                 {
                     GoBack();
@@ -198,11 +208,17 @@ namespace ParalivesAccess.Handlers
             AssetLot lot = GetLoadedLot(lotGuid);
             if (lotGuid == 0UL || lot == null)
             {
-                Speak(Loc.Get("explorer_lot_required"));
-                return;
+                if (TransitStopReader.GetStops(player).Count == 0)
+                {
+                    Speak(Loc.Get("explorer_lot_required"));
+                    return;
+                }
+                lotGuid = 0UL;
+                source = "town-transit";
             }
 
-            ExplorerModel model = ExplorerModel.Build(lotGuid, player);
+            ExplorerModel model = lotGuid == 0UL
+                ? ExplorerModel.BuildTransitOnly() : ExplorerModel.Build(lotGuid, player);
             if (model == null)
             {
                 Speak(Loc.Get("explorer_lot_required"));
@@ -213,7 +229,7 @@ namespace ParalivesAccess.Handlers
             _lotGuid = lotGuid;
             _lotSource = source;
             _tutorialPhaseAtOpen = TutorialHandler.CurrentPhaseId;
-            _isForeignLot = !player.IsInIntro && !IsOwnedLot(lotGuid);
+            _isForeignLot = lotGuid != 0UL && !player.IsInIntro && !IsOwnedLot(lotGuid);
             _showAllForeignLotObjects = false;
             _model = model;
             _history.Clear();
@@ -237,6 +253,13 @@ namespace ParalivesAccess.Handlers
 
         private static void ShowRoot(Player player, bool preferViewToggle = false)
         {
+            if (_lotGuid == 0UL)
+            {
+                var transit = NewPanel(Loc.Get("transit_town"));
+                transit.Add(CreateTransitFinder());
+                SetPanel(transit, null, pushCurrent: false);
+                return;
+            }
             var panel = NewPanel(Loc.Get("explorer_panel"));
             VirtualPanel.IEntry preferred = null;
             int currentLayer = player.GetLotLayer(_lotGuid);
@@ -271,6 +294,12 @@ namespace ParalivesAccess.Handlers
             // still the useful starting point.
             var quickActions = new FinderEntry(FindMode.Interactable);
             panel.Add(quickActions);
+            if (!player.IsInIntro)
+            {
+                panel.Add(new CommandEntry(() => _model != null,
+                    () => Loc.Get("attention_finder", GetAttentionObjects().Count), OpenAttentionFinder));
+                panel.Add(CreateTransitFinder());
+            }
             if (!player.IsInIntro && !player.IsInSelectHouseholdTutorial
                 && !player.IsInSelectStoryteller && GetPrimarySelectedPara() != null)
             {
@@ -420,6 +449,56 @@ namespace ParalivesAccess.Handlers
                 panel.Add(new ParaEntry(para));
             }
             SetPanel(panel, null, pushCurrent: true);
+        }
+
+        private static List<ObjectModel> GetAttentionObjects()
+        {
+            var result = new List<ObjectModel>();
+            if (_model != null)
+                foreach (ObjectModel item in _model.Objects)
+                    if (item.IsAvailable && ItemAttentionReader.Describe(item.Resolve()) != null)
+                        result.Add(item);
+            return result;
+        }
+
+        private static void OpenAttentionFinder()
+        {
+            // Refresh the lot snapshot when opening this list so newly spawned spills are included.
+            ExplorerModel refreshed = ExplorerModel.Build(_lotGuid, GetPlayer());
+            if (refreshed == null) { Speak(Loc.Get("explorer_lot_required")); return; }
+            _model = refreshed;
+            List<ObjectModel> items = GetAttentionObjects();
+            if (items.Count == 0) { Speak(Loc.Get("attention_none")); return; }
+            items.Sort(CompareObjectsByName);
+            var panel = NewPanel(Loc.Get("attention_panel"));
+            foreach (ObjectModel item in items)
+                panel.Add(new ObjectEntry(item, openActionDirectly: true, attentionOnly: true));
+            SetPanel(panel, null, pushCurrent: true,
+                contextAvailable: () => panel.AvailableCount > 0);
+        }
+
+        private static VirtualPanel.IEntry CreateTransitFinder()
+        {
+            return new CommandEntry(() => _model != null,
+                () => Loc.Get("transit_finder", TransitStopReader.GetStops(GetPlayer()).Count),
+                OpenTransitFinder);
+        }
+
+        private static void OpenTransitFinder()
+        {
+            var roots = TransitStopReader.GetStops(GetPlayer());
+            if (roots.Count == 0) { Speak(Loc.Get("transit_none")); return; }
+            var panel = NewPanel(Loc.Get("transit_panel"));
+            // Stops belong to the town registry, not necessarily the camera's current lot.
+            var items = new List<ObjectModel>();
+            foreach (ItemObjectRoot root in roots)
+                items.Add(new ObjectModel(_model, root, transitStop: true));
+            items.Sort(CompareObjectsByName);
+            foreach (ObjectModel item in items)
+                panel.Add(new ObjectEntry(item, openActionDirectly: true));
+            Plugin.Log.LogInfo($"[Explorer] transit stops={items.Count}, cameraLot={_lotGuid}.");
+            SetPanel(panel, null, pushCurrent: true,
+                contextAvailable: () => panel.AvailableCount > 0);
         }
 
         private static void OpenFinder(FindMode mode)
@@ -1712,7 +1791,7 @@ namespace ParalivesAccess.Handlers
 
         private static string DescribeItemActionCommand(ObjectModel item)
         {
-            string blocker = GetItemActionBlocker(item?.Resolve(), GetPlayer());
+            string blocker = GetItemActionBlocker(item?.Resolve(), GetPlayer(), item?.IsTransitStop == true);
             return Loc.Get(
                 "objects_description",
                 Loc.Get("explorer_open_actions"),
@@ -1927,7 +2006,7 @@ namespace ParalivesAccess.Handlers
         {
             ItemObjectRoot root = item?.Resolve();
             Player player = GetPlayer();
-            string blocker = GetItemActionBlocker(root, player);
+            string blocker = GetItemActionBlocker(root, player, item?.IsTransitStop == true);
             if (blocker != null)
             {
                 Speak(blocker);
@@ -2002,12 +2081,14 @@ namespace ParalivesAccess.Handlers
             return lotGuid != 0UL ? lotGuid : _lotGuid;
         }
 
-        private static string GetItemActionBlocker(ItemObjectRoot root, Player player)
+        private static string GetItemActionBlocker(ItemObjectRoot root, Player player, bool transitStop = false)
         {
             try
             {
                 if (root == null || player == null || _model == null
-                    || !_model.ContainsExactItem(root))
+                    || (transitStop
+                        ? !WorldTargeting.IsSameLiveItem(root, root.InstanceID) || !TransitStopReader.IsStop(root)
+                        : !_model.ContainsExactItem(root)))
                 {
                     return Loc.Get("explorer_target_gone");
                 }
@@ -2291,8 +2372,7 @@ namespace ParalivesAccess.Handlers
                 && player.ItemInPlacement == null
                 && !player.PlayerActionBlockedByUIWindow
                 && !IsTownMapBlockingExplorer(hybridPlayer)
-                && _lotGuid != 0UL
-                && GetLoadedLot(_lotGuid) != null
+                && (_lotGuid == 0UL || GetLoadedLot(_lotGuid) != null)
                 && _model != null;
         }
 
@@ -2357,7 +2437,7 @@ namespace ParalivesAccess.Handlers
             {
                 return false;
             }
-            return !UseActionOnlyView
+            return item.IsTransitStop || !UseActionOnlyView
                 ? item.IsAvailable
                 : item.HasCurrentActionMenu(GetPlayer());
         }
@@ -2504,6 +2584,12 @@ namespace ParalivesAccess.Handlers
             {
                 Plugin.Log.LogError("Restoring the explorer camera baseline threw: " + ex);
             }
+        }
+
+        /// <summary>Releases explorer camera/input ownership before changing controlled Para.</summary>
+        internal static void CloseForParaSwitch()
+        {
+            if (_panel != null) Close(announce: false);
         }
 
         private static void Close(bool announce)
@@ -3405,14 +3491,18 @@ namespace ParalivesAccess.Handlers
         {
             private readonly ObjectModel _item;
             private readonly bool _openActionDirectly;
+            private readonly bool _attentionOnly;
 
-            internal ObjectEntry(ObjectModel item, bool openActionDirectly = false)
+            internal ObjectEntry(ObjectModel item, bool openActionDirectly = false, bool attentionOnly = false)
             {
                 _item = item;
                 _openActionDirectly = openActionDirectly;
+                _attentionOnly = attentionOnly;
             }
 
-            public bool IsAvailable => ShouldIncludeObject(_item);
+            public bool IsAvailable => _attentionOnly
+                ? _item.IsAvailable && ItemAttentionReader.Describe(_item.Resolve()) != null
+                : ShouldIncludeObject(_item);
 
             public string Describe()
             {
@@ -3432,6 +3522,7 @@ namespace ParalivesAccess.Handlers
                     AddPart(parts, Loc.Get("explorer_tutorial_target", tutorialDescription));
                 }
                 parts.Add(_item.GetDisplayName());
+                AddPart(parts, ItemAttentionReader.Describe(root));
                 string functions = LotReadinessReader.DescribeFacilityKinds(_item.Facilities);
                 if (!string.IsNullOrEmpty(functions))
                 {
@@ -3470,6 +3561,7 @@ namespace ParalivesAccess.Handlers
 
             public void Activate()
             {
+                if (!IsAvailable) { Speak(Loc.Get("explorer_target_gone")); return; }
                 if (!_openActionDirectly)
                 {
                     OpenObjectCommands(_item);
@@ -3929,6 +4021,11 @@ namespace ParalivesAccess.Handlers
                 model.AssignDuplicateOrdinals();
                 model.AssignParaOrdinals();
                 return model;
+            }
+
+            internal static ExplorerModel BuildTransitOnly()
+            {
+                return new ExplorerModel(0UL, null, null);
             }
 
             internal List<ObjectModel> GetObjects(FindMode mode)
@@ -4834,19 +4931,22 @@ namespace ParalivesAccess.Handlers
             private int _civicFacilityFrame = -1;
             private LotReadinessReader.FacilityKind _civicFacilities;
 
-            internal ObjectModel(ExplorerModel model, ItemObjectRoot root)
+            internal ObjectModel(ExplorerModel model, ItemObjectRoot root, bool transitStop = false)
             {
                 _model = model;
                 _root = root;
                 _catalogueGuid = root.CatalogueGUID;
                 _skinGuid = root.CurrentSkinGUID;
+                IsTransitStop = transitStop;
                 InstanceId = root.InstanceID;
-                Name = ItemDescription.GetProductIdentity(root) ?? Loc.Get("item_unknown");
+                Name = transitStop ? TransitStopReader.GetLabel(root)
+                    : ItemDescription.GetProductIdentity(root) ?? Loc.Get("item_unknown");
                 Category = ItemDescription.GetCategory(root);
                 _physicalFacilities = LotReadinessReader.ClassifyFacility(root);
             }
 
             internal int InstanceId { get; }
+            internal bool IsTransitStop { get; }
             internal string Name { get; }
             internal string Category { get; }
             internal LotReadinessReader.FacilityKind Facilities
@@ -4883,7 +4983,9 @@ namespace ParalivesAccess.Handlers
             internal ItemObjectRoot Resolve()
             {
                 return _root != null && _root.InstanceID == InstanceId
-                    && _model.ContainsExactItem(_root)
+                    && (IsTransitStop
+                        ? WorldTargeting.IsSameLiveItem(_root, InstanceId) && TransitStopReader.IsStop(_root)
+                        : _model.ContainsExactItem(_root))
                         ? _root
                         : null;
             }
@@ -4901,13 +5003,14 @@ namespace ParalivesAccess.Handlers
                 {
                     _actionabilityFrame = frame;
                     _hasCurrentActionMenu =
-                        GetItemActionBlocker(Resolve(), player) == null;
+                        GetItemActionBlocker(Resolve(), player, IsTransitStop) == null;
                 }
                 return _hasCurrentActionMenu;
             }
 
             internal string GetDisplayName()
             {
+                if (IsTransitStop) return TransitStopReader.GetLabel(Resolve());
                 string productName = DuplicateCount > 1
                     ? Loc.Get("objects_copy", Name, DuplicateOrdinal, DuplicateCount)
                     : Name;
@@ -4918,6 +5021,7 @@ namespace ParalivesAccess.Handlers
 
             internal string GetPath()
             {
+                if (IsTransitStop) return Loc.Get("transit_town");
                 ItemObjectRoot root = Resolve();
                 AreaModel area = root != null ? _model.FindAreaForItem(root) : Area;
                 int layer = root != null ? root.Layer : Area.Layer;

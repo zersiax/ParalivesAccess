@@ -110,6 +110,34 @@ namespace ParalivesAccess
 
         private static void InitializeStrings()
         {
+            Add("attention_finder", "Needs attention on this lot, {0}");
+            Add("attention_panel", "Needs attention. Enter opens the object's actions");
+            Add("attention_none", "No loaded objects on this lot currently need attention.");
+            Add("attention_fire", "on fire");
+            Add("attention_broken", "broken");
+            Add("attention_burnt", "burnt");
+            Add("attention_dirty", "dirty");
+            Add("attention_spoiled", "spoiled food");
+            Add("attention_puddle", "water spill; needs mopping");
+            Add("attention_soot", "soot; needs cleaning");
+            Add("transit_finder", "Bus stops in town, {0}");
+            Add("transit_panel", "Bus stops in town. Enter opens the stop's actions");
+            Add("transit_town", "Town");
+            Add("transit_stop", "Bus stop");
+            Add("transit_stop_label", "{0}, stop {1}");
+            Add("transit_none", "No loaded bus stops are available in this town.");
+            Add("transit_destinations", "Choose a bus destination. Use arrows and Enter. L reopens this list");
+            Add("transit_destinations_pending", "The bus destination map is opening. Press L to list its stops.");
+            Add("transit_destination", "Stop {0}, {1}");
+            Add("transit_destination_gone", "This bus destination is no longer available. Press L to refresh the list.");
+            Add("transit_cancel", "Cancel bus travel");
+            Add("transit_cancelled", "Bus travel cancelled.");
+            Add("transit_chosen", "Travelling to {0}.");
+            Add("para_switch_unavailable", "Household switching is unavailable in the current screen or activity.");
+            Add("para_switch_none", "No household Para is available to select.");
+            Add("para_switch_selected", "Controlling and following {0}, {1} of {2} in the household.");
+            Add("para_switch_selected_pending", "Controlling {0}, {1} of {2} in the household. Camera follow requested.");
+            Add("para_switch_failed", "Could not switch household Para. Details were written to the log.");
             // ===== General =====
             Add("mod_loaded", "Paralives Access loaded.");
             Add("speech_unavailable", "Paralives Access loaded, but no screen reader was found.");

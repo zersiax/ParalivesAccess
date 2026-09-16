@@ -1,4 +1,4 @@
-ParalivesAccess 0.39.37 - first public build
+ParalivesAccess 0.40.0 - Patreon build
 
 This accessibility mod adds screen-reader output and keyboard access to Paralives.
 The bundle includes BepInEx 5.4.23.5, Unity Doorstop 4.5.0 and Prism 0.17.3.
@@ -12,7 +12,7 @@ INSTALLATION
    The mod must end up at BepInEx/plugins/ParalivesAccess.dll.
    prism.dll, winhttp.dll and doorstop_config.ini must be beside Paralives.exe.
 4. Start your screen reader, then launch Paralives normally through Steam.
-   The BepInEx log should report ParalivesAccess 0.39.37 and Speech=True.
+   The BepInEx log should report ParalivesAccess 0.40.0 and Speech=True.
 
 
 DEFAULT CONTROLS
@@ -24,6 +24,11 @@ Shift+F3: repeat the most recent important event.
 F4: act on an announced context, such as available conversation topics.
 F6: accessible build catalogue.
 F7: current-lot explorer and available actions.
+Needs attention in F7: dirty, broken, burning, burnt or spoiled objects, water
+spills and soot on the current lot. Enter opens the native menu to clean, mop or repair.
+Bus stops in town in F7: loaded stops, including street signs outside the lot.
+Choose the native Take the bus action; when the destination map opens, press L
+for its numbered stops. Enter chooses a stop; Cancel bus travel cancels the trip.
 L: town and destination browser.
 Shift+Enter on an F7 Para entry: add to or remove from the selected group.
 Clear selected group: available at the F7 root and on Para command pages;
@@ -32,6 +37,8 @@ In the creator Household panel, Down on a Para portrait reaches Delete;
 Up returns to the portrait. Enter opens the game's confirmation when deletion is allowed.
 F: the game's normal follow-selected-Para control.
 F8: toggle close audio perspective; off by default.
+F9 / Shift+F9: select and follow the next / previous household Para. This selects
+that Para alone. Text entry, modal windows and restricted activities take priority.
 Minus / equals: native camera zoom; release in live mode to hear the final value.
 7 / 8 in the creator: decrease / increase the focused value.
 9 / 0 in the creator: adjust a supported body control's second axis.

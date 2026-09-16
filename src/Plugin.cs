@@ -38,7 +38,7 @@ namespace ParalivesAccess
         public const string PluginName = "ParalivesAccess";
 
         /// <summary>Plugin version.</summary>
-        public const string PluginVersion = "0.39.37";
+        public const string PluginVersion = "0.40.0";
 
         /// <summary>Shared logger so handlers and probes log under the plugin's name.</summary>
         public static ManualLogSource Log { get; private set; }
@@ -79,6 +79,18 @@ namespace ParalivesAccess
                 "CloseAudioPerspectiveKey",
                 Key.F8,
                 "Toggles a close virtual audio listener in live mode without changing the visual camera.").Value;
+            ParaSwitchHandler.SwitchKey = Config.Bind(
+                "Keyboard", "SwitchHouseholdParaKey", Key.F9,
+                "Select and follow the next household Para. Hold Shift for the previous Para.").Value;
+            if (ParaSwitchHandler.SwitchKey == Key.F3
+                || ParaSwitchHandler.SwitchKey == ContextActionHandler.ActionKey
+                || ParaSwitchHandler.SwitchKey == BuildCatalogHandler.OpenKey
+                || ParaSwitchHandler.SwitchKey == LotObjectHandler.OpenKey
+                || ParaSwitchHandler.SwitchKey == VirtualAudioListenerHandler.ToggleKey)
+            {
+                ParaSwitchHandler.Enabled = false;
+                Log.LogError("SwitchHouseholdParaKey conflicts with another accessibility command.");
+            }
             VirtualAudioListenerHandler.ReferenceDistance = Mathf.Clamp(
                 Config.Bind(
                     "Audio",
@@ -349,6 +361,7 @@ namespace ParalivesAccess
             // Captures a preview only after CreateItemForPlacementEvent has run, and verifies the
             // transaction only after EndMoveItem has updated the lot list and balance.
             ItemPlacementHandler.AfterGameSystems();
+            ParaSwitchHandler.Tick();
 
             // The close listener is prepared before audio systems for gate/mix evaluation, then
             // moved once more here so the audible pose reflects this frame's character movement.
