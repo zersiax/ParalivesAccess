@@ -38,7 +38,7 @@ namespace ParalivesAccess
         public const string PluginName = "ParalivesAccess";
 
         /// <summary>Plugin version.</summary>
-        public const string PluginVersion = "0.40.0";
+        public const string PluginVersion = "0.40.1";
 
         /// <summary>Shared logger so handlers and probes log under the plugin's name.</summary>
         public static ManualLogSource Log { get; private set; }

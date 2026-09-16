@@ -19,6 +19,9 @@ $sources = @('ItemAttentionReader','TransitStopReader','ParaSwitchHandler') | Fo
     (Read-Source $_) -replace '(?m)^using [^;]+;\r?\n', ''
 }
 $identity = Read-Block (Read-Source 'WorldTargeting') 'internal static bool IsSameLiveItem('
+$worldPositions = @('internal static Vector3 GetItemPosition(',
+    'internal static bool IsActiveCharacterVisual(', 'internal static Vector3 GetCharacterPosition(',
+    'private static bool IsFinite(') | ForEach-Object { Read-Block (Read-Source 'WorldTargeting') $_ }
 $destination = Read-Block (Read-Source 'TownMapLotHandler') 'private sealed class FastTravelEntry'
 $destination = $destination.Replace('private sealed class FastTravelEntry', 'public sealed class FastTravelEntry')
 
@@ -28,6 +31,13 @@ $adapters = @'
 namespace UnityEngine {
  public class Object {}
  public class GameObject {public bool activeInHierarchy=true;}
+ public struct Vector3 {
+  public float x,y,z;public Vector3(float x,float y,float z){this.x=x;this.y=y;this.z=z;}
+  public static Vector3 zero=>new Vector3(0,0,0);
+  public static Vector3 operator -(Vector3 a,Vector3 b)=>new Vector3(a.x-b.x,a.y-b.y,a.z-b.z);
+  public float magnitude=>(float)Math.Sqrt(x*x+y*y+z*z);
+ }
+ public class Transform {public Vector3 position;}
 }
 namespace UnityEngine.InputSystem {
  public enum Key {F9}
@@ -53,8 +63,10 @@ public static class Settings {
  public static T Get<T>() where T:class=>Values.TryGetValue(typeof(T),out var value)?value as T:null;
 }
 public class ItemObjectText:UnityEngine.Object {public string Text;}
+public class ItemCubeTransform {public Vector3 LocalPosition;}
 public class ItemObjectRoot {
  public UnityEngine.GameObject gameObject=new UnityEngine.GameObject();
+ public UnityEngine.Transform transform=new UnityEngine.Transform();public ItemCubeTransform CubeTransform;
  public int InstanceID;public ulong CatalogueGUID,LotPlacedOnGUID;public string Name="Object";
  public bool CanSetAlphaDirty,IsOnFire;
  public Dictionary<ulong,float> StateValues=new Dictionary<ulong,float>();
@@ -87,14 +99,17 @@ public class HybridPlayer {public Player Player=new Player();public bool HasInpu
 public class PlayerManager {public static PlayerManager Instance=new PlayerManager();public HybridPlayer HybridPlayer1=new HybridPlayer();}
 public class UICharacters {public bool IsInTargetCharacterSelectionMode,IsTogetherCardsMode;}
 public static class UI {public static UICharacters Portraits=new UICharacters();public static T GetOrNull<T>(int id) where T:class=>Portraits as T;}
-public class AssetCharacterData {public string FullName;public bool IsDeadOrTakenAway;}
+public class AssetCharacterData {public string FullName;public bool IsDeadOrTakenAway;public Vector3 Position;}
 public class AssetCharacter {public ulong GUID;public AssetCharacterData Data=new AssetCharacterData();}
+public class CharacterVisual {public ulong CharacterGUID;public bool IsVisible=true;public UnityEngine.GameObject gameObject=new UnityEngine.GameObject();public UnityEngine.Transform transform=new UnityEngine.Transform();}
+public static class MeasurementUnitService {public static float LastDistance;public static string Unit="m";public static string FormatLength(float value){LastDistance=value;return value.ToString(System.Globalization.CultureInfo.InvariantCulture)+" <size=70%>"+Unit+"</size>";}}
 public class AssetHouseholdData {public List<ulong> Characters=new List<ulong>();}
 public class AssetHousehold {public AssetHouseholdData Data=new AssetHouseholdData();}
 public class HouseholdManager {public static HouseholdManager Instance=new HouseholdManager();public AssetHousehold CurrentHousehold=new AssetHousehold();}
 public class CharacterManager {
  public static CharacterManager Instance=new CharacterManager();
  public Dictionary<ulong,AssetCharacter> Characters=new Dictionary<ulong,AssetCharacter>();
+ public Dictionary<ulong,CharacterVisual> LoadedCharacterVisuals=new Dictionary<ulong,CharacterVisual>();
  public int SelectCalls;
  public AssetCharacter GetCharacterByGUID(ulong id)=>Characters.TryGetValue(id,out var value)?value:null;
  public void SelectCharacter(ulong guid,int playerIndex) {
@@ -119,7 +134,7 @@ namespace ParalivesAccess {
  public static class Plugin {public static Logger Log=new Logger();}
 }
 namespace ParalivesAccess.Speech {
- public static class ScreenReader {public static string Last;public static void Speak(string s){Last=s;}}
+ public static class ScreenReader {public static string Last;public static void Speak(string s){Last=s;}public static string NormalizeForOutput(string s)=>System.Text.RegularExpressions.Regex.Replace(s,"<[^>]+>","");}
 }
 namespace ParalivesAccess.Handlers {
  public static class ItemDescription {public static string GetProductIdentity(ItemObjectRoot root)=>root?.Name;}
@@ -185,6 +200,29 @@ public static class HouseholdToolsTests {
   var text=new ItemObjectText{Text="12"};sign.Children.Add(text);Check(TransitStopReader.GetLabel(sign).Contains("12"),"visible stop number spoken");text.Text="13";Check(TransitStopReader.GetLabel(sign).Contains("13"),"stop number reread");
   method.NeedsMapSelectionBasedOnItem=false;Check(!TransitStopReader.IsStop(sign),"non-map fast travel not misclassified");method.NeedsMapSelectionBasedOnItem=true;
 
+  var walker=new AssetCharacter{GUID=100,Data=new AssetCharacterData{FullName="Walker",Position=new Vector3(0,50,0)}};
+  var nearby=new ItemObjectRoot{InstanceID=40,Name="Zebra",CubeTransform=new ItemCubeTransform{LocalPosition=new Vector3(3,0,4)}};
+  var tied=new ItemObjectRoot{InstanceID=30,Name="Zulu",CubeTransform=new ItemCubeTransform{LocalPosition=new Vector3(-3,0,4)}};
+  var far=new ItemObjectRoot{InstanceID=10,Name="Alpha",CubeTransform=new ItemCubeTransform{LocalPosition=new Vector3(500,0,0)}};
+  var departures=new List<ItemObjectRoot>{far,nearby,tied};
+  Check(TransitStopReader.TrySortDepartureStops(departures,walker),"valid Para can order departure stops");
+  Check(departures[0]==tied&&departures[1]==nearby&&departures[2]==far,"nearest first rather than alphabetical, stable equal-distance order");
+  Check(TransitStopReader.DescribeDepartureDistance(nearby,walker).Contains("5 m")&&MeasurementUnitService.LastDistance==5,"horizontal distance ignores floor height and uses native units");
+  Check(TransitStopReader.DescribeDepartureDistance(nearby,walker).Contains("Walker"),"distance names its Para origin");
+  Check(!TransitStopReader.DescribeDepartureDistance(nearby,walker).Contains("<size"),"native measurement markup stripped");
+  MeasurementUnitService.Unit="ft";Check(TransitStopReader.DescribeDepartureDistance(nearby,walker).Contains("ft"),"changed native unit preference read live");MeasurementUnitService.Unit="m";
+  walker.Data.Position=new Vector3(3,50,4);Check(TransitStopReader.DescribeDepartureDistance(nearby,walker).Contains("0 m"),"distance reread after Para moves");
+  var visual=new CharacterVisual{CharacterGUID=100};visual.transform.position=new Vector3(500,0,0);CharacterManager.Instance.LoadedCharacterVisuals[100]=visual;
+  Check(TransitStopReader.TrySortDepartureStops(departures,walker)&&departures[0]==far,"live visual position takes priority over saved coordinates");
+  Check(TransitStopReader.DescribeDepartureDistance(far,walker).Contains("0 m"),"speech and sort share the live Para origin");
+  visual.IsVisible=false;Check(TransitStopReader.TrySortDepartureStops(departures,walker)&&departures[0]==nearby,"unavailable visual uses documented saved position");
+  Check(!TransitStopReader.TrySortDepartureStops(departures,null),"missing selected Para never substitutes camera/origin");
+  walker.Data.Position=new Vector3(float.NaN,0,0);Check(!TransitStopReader.TrySortDepartureStops(departures,walker),"invalid Para coordinates reject sorting");
+  Check(TransitStopReader.DescribeDepartureDistance(far,walker).StartsWith("transit_distance_unavailable"),"invalid coordinates have explicit distance feedback");
+  walker.Data.Position=Vector3.zero;far.CubeTransform.LocalPosition=new Vector3(float.PositiveInfinity,0,0);
+  Check(TransitStopReader.TrySortDepartureStops(departures,walker)&&departures[2]==far,"unknown target distance sorts after measured stops");
+  Check(TransitStopReader.DescribeDepartureDistance(far,walker).StartsWith("transit_distance_unavailable"),"unknown target never speaks infinite distance");
+
   foreach(ulong id in new ulong[]{11,22,33}){CharacterManager.Instance.Characters[id]=new AssetCharacter{GUID=id,Data=new AssetCharacterData{FullName="Para "+id}};HouseholdManager.Instance.CurrentHousehold.Data.Characters.Add(id);}
   player.SelectedCharactersGUID.Add(11);ParaSwitchHandler.Tick();Check(player.GetSelectedCharacterGUID()==22&&player.CameraCurrentCharacterFollowTarget==22,"forward selects and follows");
   Keyboard.current.shiftKey.isPressed=true;ParaSwitchHandler.Tick();Check(player.GetSelectedCharacterGUID()==11,"reverse selects rather than shift-groups");ParaSwitchHandler.Tick();Check(player.GetSelectedCharacterGUID()==33,"reverse wraps");Keyboard.current.shiftKey.isPressed=false;
@@ -221,9 +259,9 @@ public static class HouseholdToolsTests {
  }
 }
 '@
-$code = "using System; using System.Collections.Generic; using Setting; using UnityEngine.InputSystem; using ParalivesAccess; using ParalivesAccess.Handlers; using ParalivesAccess.Speech;`n" + $adapters + ($sources -join "`n") + @"
+$code = "using System; using System.Collections.Generic; using Setting; using UnityEngine; using UnityEngine.InputSystem; using ParalivesAccess; using ParalivesAccess.Handlers; using ParalivesAccess.Speech;`n" + $adapters + ($sources -join "`n") + @"
 namespace ParalivesAccess.Handlers {
- public static class WorldTargeting { $identity }
+ public static class WorldTargeting { $identity $($worldPositions -join "`n") }
  public static class TownMapLotHandler {
   public static int Closes;public static void CloseForParaSwitch(){Closes++;}
   private static void ClearPanelOwnership(){}

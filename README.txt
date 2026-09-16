@@ -1,4 +1,4 @@
-ParalivesAccess 0.40.0 - Patreon build
+ParalivesAccess 0.40.1 - Patreon build
 
 This accessibility mod adds screen-reader output and keyboard access to Paralives.
 The bundle includes BepInEx 5.4.23.5, Unity Doorstop 4.5.0 and Prism 0.17.3.
@@ -12,7 +12,7 @@ INSTALLATION
    The mod must end up at BepInEx/plugins/ParalivesAccess.dll.
    prism.dll, winhttp.dll and doorstop_config.ini must be beside Paralives.exe.
 4. Start your screen reader, then launch Paralives normally through Steam.
-   The BepInEx log should report ParalivesAccess 0.40.0 and Speech=True.
+   The BepInEx log should report ParalivesAccess 0.40.1 and Speech=True.
 
 
 DEFAULT CONTROLS
@@ -26,8 +26,10 @@ F6: accessible build catalogue.
 F7: current-lot explorer and available actions.
 Needs attention in F7: dirty, broken, burning, burnt or spoiled objects, water
 spills and soot on the current lot. Enter opens the native menu to clean, mop or repair.
-Bus stops in town in F7: loaded stops, including street signs outside the lot.
-Choose the native Take the bus action; when the destination map opens, press L
+Bus departure stops in F7: loaded stops nearest the selected Para first, including
+street signs outside the lot. Each stop announces its current straight-line distance
+from that Para in your chosen units. Reopen the list to refresh its order after moving.
+Choose the native Take the bus action to walk to that departure stop. When the destination map opens, press L
 for its numbered stops. Enter chooses a stop; Cancel bus travel cancels the trip.
 L: town and destination browser.
 Shift+Enter on an F7 Para entry: add to or remove from the selected group.

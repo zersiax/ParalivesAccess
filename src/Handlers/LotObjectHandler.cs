@@ -486,19 +486,29 @@ namespace ParalivesAccess.Handlers
 
         private static void OpenTransitFinder()
         {
+            AssetCharacter departurePara = GetSelectedCharacter(GetPlayer());
+            if (departurePara?.Data == null)
+            {
+                Speak(Loc.Get("explorer_selected_para_required"));
+                return;
+            }
             var roots = TransitStopReader.GetStops(GetPlayer());
             if (roots.Count == 0) { Speak(Loc.Get("transit_none")); return; }
+            if (!TransitStopReader.TrySortDepartureStops(roots, departurePara))
+            {
+                Speak(Loc.Get("transit_departure_location_unavailable"));
+                return;
+            }
             var panel = NewPanel(Loc.Get("transit_panel"));
             // Stops belong to the town registry, not necessarily the camera's current lot.
-            var items = new List<ObjectModel>();
             foreach (ItemObjectRoot root in roots)
-                items.Add(new ObjectModel(_model, root, transitStop: true));
-            items.Sort(CompareObjectsByName);
-            foreach (ObjectModel item in items)
-                panel.Add(new ObjectEntry(item, openActionDirectly: true));
-            Plugin.Log.LogInfo($"[Explorer] transit stops={items.Count}, cameraLot={_lotGuid}.");
+                panel.Add(new ObjectEntry(new ObjectModel(_model, root, transitStop: true),
+                    openActionDirectly: true, departurePara: departurePara));
+            Plugin.Log.LogInfo($"[Explorer] transit departure stops={roots.Count}, "
+                + $"para={departurePara.GUID}, order=distance-from-para, cameraLot={_lotGuid}.");
             SetPanel(panel, null, pushCurrent: true,
-                contextAvailable: () => panel.AvailableCount > 0);
+                contextAvailable: () => GetSelectedCharacter(GetPlayer()) == departurePara
+                    && panel.AvailableCount > 0);
         }
 
         private static void OpenFinder(FindMode mode)
@@ -3492,17 +3502,21 @@ namespace ParalivesAccess.Handlers
             private readonly ObjectModel _item;
             private readonly bool _openActionDirectly;
             private readonly bool _attentionOnly;
+            private readonly AssetCharacter _departurePara;
 
-            internal ObjectEntry(ObjectModel item, bool openActionDirectly = false, bool attentionOnly = false)
+            internal ObjectEntry(ObjectModel item, bool openActionDirectly = false,
+                bool attentionOnly = false, AssetCharacter departurePara = null)
             {
                 _item = item;
                 _openActionDirectly = openActionDirectly;
                 _attentionOnly = attentionOnly;
+                _departurePara = departurePara;
             }
 
-            public bool IsAvailable => _attentionOnly
+            public bool IsAvailable => (_departurePara == null
+                || GetSelectedCharacter(GetPlayer()) == _departurePara) && (_attentionOnly
                 ? _item.IsAvailable && ItemAttentionReader.Describe(_item.Resolve()) != null
-                : ShouldIncludeObject(_item);
+                : ShouldIncludeObject(_item));
 
             public string Describe()
             {
@@ -3530,7 +3544,9 @@ namespace ParalivesAccess.Handlers
                 }
                 AddPart(parts, _item.GetPath());
                 AddPart(parts, ItemDescription.DescribePlacementRelation(root));
-                AddPart(parts, WorldTargeting.DescribeFromCamera(_item.Position));
+                AddPart(parts, _item.IsTransitStop
+                    ? TransitStopReader.DescribeDepartureDistance(root, _departurePara)
+                    : WorldTargeting.DescribeFromCamera(_item.Position));
                 Storyteller storyteller = GetPlayer()?.IsInSelectStoryteller == true
                     ? FindStoryteller(root)
                     : null;

@@ -120,8 +120,11 @@ namespace ParalivesAccess
             Add("attention_spoiled", "spoiled food");
             Add("attention_puddle", "water spill; needs mopping");
             Add("attention_soot", "soot; needs cleaning");
-            Add("transit_finder", "Bus stops in town, {0}");
-            Add("transit_panel", "Bus stops in town. Enter opens the stop's actions");
+            Add("transit_finder", "Bus departure stops, nearest first, {0}");
+            Add("transit_panel", "Bus departure stops, nearest to the selected Para first. Distances are straight-line. Enter opens the stop's actions");
+            Add("transit_departure_distance", "about {0} from {1}");
+            Add("transit_distance_unavailable", "distance from the selected Para unavailable");
+            Add("transit_departure_location_unavailable", "Cannot locate the selected Para to order bus departure stops.");
             Add("transit_town", "Town");
             Add("transit_stop", "Bus stop");
             Add("transit_stop_label", "{0}, stop {1}");

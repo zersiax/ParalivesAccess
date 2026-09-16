@@ -14,7 +14,7 @@
     <!-- Unity assemblies are not strong-name-signed consistently; suppress the noise -->
     <NoWarn>$(NoWarn);CS0436</NoWarn>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Version>0.40.0</Version>
+    <Version>0.40.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using ParalivesAccess.Speech;
 using Setting;
+using UnityEngine;
 
 namespace ParalivesAccess.Handlers
 {
@@ -54,6 +56,50 @@ namespace ParalivesAccess.Handlers
                 && !string.IsNullOrWhiteSpace(sign.Text))
                 return Loc.Get("transit_stop_label", name, sign.Text.Trim());
             return name;
+        }
+
+        /// <summary>Orders departure stops once on open, relative to the selected Para.</summary>
+        internal static bool TrySortDepartureStops(List<ItemObjectRoot> stops, AssetCharacter para)
+        {
+            if (stops == null || para?.Data == null) return false;
+            Vector3 origin = WorldTargeting.GetCharacterPosition(para);
+            if (!IsFinite(origin)) return false;
+            stops.Sort((left, right) =>
+            {
+                int distance = DistanceFrom(left, origin).CompareTo(DistanceFrom(right, origin));
+                return distance != 0 ? distance
+                    : (left?.InstanceID ?? -1).CompareTo(right?.InstanceID ?? -1);
+            });
+            return true;
+        }
+
+        /// <summary>Reads distance again when focused; camera movement cannot change the origin.</summary>
+        internal static string DescribeDepartureDistance(ItemObjectRoot stop, AssetCharacter para)
+        {
+            if (para?.Data == null) return Loc.Get("transit_distance_unavailable");
+            float distance = DistanceFrom(stop, WorldTargeting.GetCharacterPosition(para));
+            if (float.IsInfinity(distance)) return Loc.Get("transit_distance_unavailable");
+            string name = string.IsNullOrWhiteSpace(para.Data.FullName)
+                ? Loc.Get("state_unknown_para") : para.Data.FullName.Trim();
+            return Loc.Get("transit_departure_distance",
+                ScreenReader.NormalizeForOutput(MeasurementUnitService.FormatLength(distance)), name);
+        }
+
+        private static float DistanceFrom(ItemObjectRoot stop, Vector3 origin)
+        {
+            if (stop == null || !IsFinite(origin)) return float.PositiveInfinity;
+            Vector3 position = WorldTargeting.GetItemPosition(stop);
+            if (!IsFinite(position)) return float.PositiveInfinity;
+            Vector3 delta = position - origin;
+            float distance = new Vector3(delta.x, 0f, delta.z).magnitude;
+            return float.IsNaN(distance) ? float.PositiveInfinity : distance;
+        }
+
+        private static bool IsFinite(Vector3 value)
+        {
+            return !float.IsNaN(value.x) && !float.IsInfinity(value.x)
+                && !float.IsNaN(value.y) && !float.IsInfinity(value.y)
+                && !float.IsNaN(value.z) && !float.IsInfinity(value.z);
         }
     }
 }
