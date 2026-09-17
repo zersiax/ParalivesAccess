@@ -866,7 +866,6 @@ namespace ParalivesAccess
             Add("explorer_select_only_para", "Select only this Para");
             Add("explorer_add_to_selection", "Add this Para to the selected group");
             Add("explorer_remove_from_selection", "Remove this Para from the selected group");
-            Add("explorer_selection_shortcut_requires_para", "Highlight a Para to add or remove them from the selected group with Shift Enter.");
             Add("explorer_clear_selection", "Clear selected group; keep {0} selected");
             Add("explorer_selection_cleared", "Selected group cleared. Only {0} remains selected.");
             Add("creator_delete_para", "Delete {0}");
@@ -1068,6 +1067,7 @@ namespace ParalivesAccess
             Add("settings_error", "A settings control could not be accessed. Details are in the mod log.");
             Add("settings_categories", "Settings categories");
             Add("settings_panel", "Settings");
+            Add("panel_context_menu", "Options");
             Add("dropdown_search", "Search options. Type to filter; Down to browse the options.");
             Add("dropdown_search_value", "Search options, {0}. Down to browse the options.");
             Add("dropdown_no_results", "No options available. Edit the search to change the results.");

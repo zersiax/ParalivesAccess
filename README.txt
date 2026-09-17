@@ -1,4 +1,4 @@
-ParalivesAccess 0.40.1 - Patreon build
+ParalivesAccess 0.40.2 - Patreon build
 
 This accessibility mod adds screen-reader output and keyboard access to Paralives.
 The bundle includes BepInEx 5.4.23.5, Unity Doorstop 4.5.0 and Prism 0.17.3.
@@ -12,7 +12,7 @@ INSTALLATION
    The mod must end up at BepInEx/plugins/ParalivesAccess.dll.
    prism.dll, winhttp.dll and doorstop_config.ini must be beside Paralives.exe.
 4. Start your screen reader, then launch Paralives normally through Steam.
-   The BepInEx log should report ParalivesAccess 0.40.1 and Speech=True.
+   The BepInEx log should report ParalivesAccess 0.40.2 and Speech=True.
 
 
 DEFAULT CONTROLS
@@ -33,6 +33,7 @@ Choose the native Take the bus action to walk to that departure stop. When the d
 for its numbered stops. Enter chooses a stop; Cancel bus travel cancels the trip.
 L: town and destination browser.
 Shift+Enter on an F7 Para entry: add to or remove from the selected group.
+Shift+Enter on other F7 entries: activate normally.
 Clear selected group: available at the F7 root and on Para command pages;
 keeps one household Para selected, as required by the game's selection behavior.
 In the creator Household panel, Down on a Para portrait reaches Delete;

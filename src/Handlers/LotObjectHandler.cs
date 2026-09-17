@@ -929,10 +929,11 @@ namespace ParalivesAccess.Handlers
                 Speak(Loc.Get("explorer_target_gone"));
                 return;
             }
-            if (_enterWithShift)
+            // Shift modifies Para selection only. It must not turn every other explorer command
+            // into a dead end when the modifier remains held (for example after Shift+Tab).
+            if (_enterWithShift && entry is IParaSelectionEntry paraEntry)
             {
-                if (entry is IParaSelectionEntry paraEntry) paraEntry.ToggleSelection();
-                else Speak(Loc.Get("explorer_selection_shortcut_requires_para"));
+                paraEntry.ToggleSelection();
             }
             else
             {

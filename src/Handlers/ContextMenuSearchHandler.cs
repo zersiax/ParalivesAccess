@@ -6,7 +6,7 @@ using UnityEngine.EventSystems;
 
 namespace ParalivesAccess.Handlers
 {
-    /// <summary>Connects a native searchable dropdown's text field and result list.</summary>
+    /// <summary>Announces native popup focus and connects searchable dropdowns to their results.</summary>
     internal static class ContextMenuSearchHandler
     {
         private static TMP_InputField GetSearch(UIContextMenuWidget window)
@@ -34,6 +34,37 @@ namespace ParalivesAccess.Handlers
             if (input == null || source.gameObject != input.gameObject) return null;
             return string.IsNullOrWhiteSpace(input.text)
                 ? Loc.Get("dropdown_search") : Loc.Get("dropdown_search_value", input.text);
+        }
+
+        /// <summary>Includes the silently seeded option, or active search, in one opening announcement.</summary>
+        internal static string DescribeOpening(UIContextMenuWidget window, string name, int count)
+        {
+            if (window == null || !window.IsVisible) return null;
+            string summary = count == 1
+                ? Loc.Get("window_opened_one", name) : Loc.Get("window_opened", name, count);
+            string focusLabel = null;
+            TMP_InputField input = GetSearch(window);
+            if (input != null && EventSystem.current?.currentSelectedGameObject == input.gameObject)
+            {
+                focusLabel = GetLabel(input);
+            }
+            else
+            {
+                Focusable focused = ReferenceEquals(MenuNavigationHandler.CursorGroup, window)
+                    && MenuNavigationHandler.Cursor != null
+                        ? MenuNavigationHandler.Cursor : window.GetFocused(false);
+                if (focused != null && focused.gameObject.activeInHierarchy
+                    && !FocusNavigator.ShouldSkip(focused)
+                    && focused.GetComponentInParent<UIContextMenuWidget>() == window)
+                {
+                    UIContextMenuWidgetItem row = focused.GetComponentInParent<UIContextMenuWidgetItem>();
+                    // Pooled rows can outlive their menu contents. Read only a current live option.
+                    if (row != null && GetResults(window).Contains(row))
+                        focusLabel = UiLabelReader.GetLabelOrFallback(focused);
+                }
+            }
+            return string.IsNullOrWhiteSpace(focusLabel)
+                ? summary : Loc.Get("panel_with_focus", summary, focusLabel);
         }
 
         /// <summary>Consumes a vertical search gesture, selecting only a live native result.</summary>

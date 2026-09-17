@@ -810,6 +810,24 @@ namespace ParalivesAccess.Handlers
                     MenuNavigationHandler.FocusForegroundWindow(window);
                 }
 
+                // Foreground focus is seeded silently. A one-option popup has nowhere for arrows
+                // to move, so its opening announcement must name the option already selected.
+                if (window is UIContextMenuWidget contextMenu)
+                {
+                    string summary = ContextMenuSearchHandler.DescribeOpening(contextMenu, name, count);
+                    Plugin.Log.LogInfo(
+                        $"[Window] {summary}  (type={window.GetType().Name})");
+                    return summary;
+                }
+
+                if (window is UIStoryCards storyCards)
+                {
+                    string summary = DescribeStoryCardWindow(storyCards, name);
+                    Plugin.Log.LogInfo(
+                        $"[Window] {summary}  (type={window.GetType().Name})");
+                    return summary;
+                }
+
                 // UIInteractionsList is a structural, pooled list panel. Its useful target/header
                 // context is no longer a navigation stop, so present that context together with the
                 // real row that foreground focus selected. This is one state announcement, not a
@@ -939,6 +957,37 @@ namespace ParalivesAccess.Handlers
                 Plugin.Log.LogError("Reading an informational window threw: " + ex);
                 return null;
             }
+        }
+
+        /// <summary>Names the focused card/pack in the visible offer, including single-pack hands.</summary>
+        private static string DescribeStoryCardWindow(UIStoryCards window, string name)
+        {
+            FocusableGroup group = MenuNavigationHandler.CursorGroup;
+            UIStoryCardOffer offer = group != null ? group.GetComponentInParent<UIStoryCardOffer>() : null;
+            if (window == null || !window.IsVisible || offer?.UIContainer == null
+                || !offer.UIContainer.IsVisible
+                || offer.GetComponentInParent<UIStoryCards>() != window) return null;
+
+            Focusable focused = MenuNavigationHandler.Cursor;
+            UIStoryCard card = focused != null && focused.gameObject.activeInHierarchy
+                && !FocusNavigator.ShouldSkip(focused) ? focused.GetComponentInParent<UIStoryCard>() : null;
+            int count = CountFocusables(group);
+            string summary = count == 1
+                ? Loc.Get("window_opened_one", name) : Loc.Get("window_opened", name, count);
+            if (card != null && offer.UIListCardsOffered?.CurrentItems?.Contains(card) == true)
+            {
+                string label = UiLabelReader.GetLabelOrFallback(focused);
+                if (!string.IsNullOrWhiteSpace(label)) summary = Loc.Get("panel_with_focus", summary, label);
+            }
+            // The tutorial overlay is authored guidance for the current hand. Do not scrape the
+            // entire story window: other pooled hands and their card text remain in its hierarchy.
+            if (window.TutorialOverlay != null && window.TutorialOverlay.IsVisible)
+            {
+                string tutorial = UiLabelReader.GetLabel(window.TutorialOverlay);
+                if (!string.IsNullOrWhiteSpace(tutorial))
+                    summary = Loc.Get("window_informational", summary, tutorial);
+            }
+            return summary;
         }
 
         /// <summary>Describes an interaction target and the real control selected on entry.</summary>
@@ -1435,6 +1484,10 @@ namespace ParalivesAccess.Handlers
         /// <summary>Turns a window's type name into something speakable.</summary>
         private static string DescribeWindowName(UIWindow window)
         {
+            if (window is UIContextMenuWidget)
+            {
+                return Loc.Get("panel_context_menu");
+            }
             if (window is UIThoughts)
             {
                 return Loc.Get("panel_thoughts");

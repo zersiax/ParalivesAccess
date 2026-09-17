@@ -36,7 +36,10 @@ using System.Collections.Generic;
 using System.Reflection;
 public class GameObject { public bool activeInHierarchy=true; }
 public class Transform { public int index; public int GetSiblingIndex()=>index; }
-public class FocusableGroup { public string name; public int count; public Transform transform=new Transform(); public GameObject gameObject=new GameObject(); }
+public class FocusableGroup {
+ public string name; public int count; public Transform transform=new Transform(); public GameObject gameObject=new GameObject();
+ public UIStoryCards story;public T GetComponentInParent<T>() where T:class => (this as T) ?? (story as T);
+}
 public class UIWindow:FocusableGroup {
  public bool IsVisible=true,BlockPlayerActionWhenShown,HideOtherInterfacesWhenShown;
  public List<FocusableGroup> children=new List<FocusableGroup>();
@@ -47,6 +50,7 @@ public class UIWindow:FocusableGroup {
  }
 }
 public class UIManager { private List<UIWindow> _visibleWindows=new List<UIWindow>(); public UIWindow CurrentWindow; public void Add(UIWindow w)=>_visibleWindows.Add(w); }
+public class UIStoryCards:UIWindow {}
 public class HybridPlayer { public UIManager UIManager=new UIManager(); }
 public class HybridReferences { public static HybridReferences Instance=new HybridReferences(); public UIManager UIManagerCommon=new UIManager(); }
 public static class Plugin { public static LogAdapter Log=new LogAdapter(); }
@@ -63,6 +67,8 @@ public static class CommonWindowChecks {
  static void ResolveReflection(){_visibleWindowsField=typeof(UIManager).GetField("_visibleWindows",BindingFlags.NonPublic|BindingFlags.Instance);}
  static int CountFocusables(FocusableGroup g)=>g.count;
  static void SeedFocus(FocusableGroup g){}
+ static FocusableGroup announced;static int announcements;
+ static void FocusPanelAndAnnounce(FocusableGroup g,int index,string name){announced=g;announcements++;SeedFocus(g);}
  static int checks;
  static void Check(bool condition,string label){if(!condition)throw new Exception(label);checks++;}
  public static string Run(){
@@ -91,6 +97,32 @@ public static class CommonWindowChecks {
   Check(Frame(player)==settings&&_candidates.Contains(popup)&&_candidates.Count==3,"nonblocking common windows are included without taking exclusive focus");
   popup.HideOtherInterfacesWhenShown=true;
   Check(Frame(player)==popup&&_candidates.Count==1,"a common window hiding other interfaces is also exclusive");
+
+  // Reproduce the empty offer between a card being picked and the live HUD returning.
+  HybridReferences.Instance.UIManagerCommon.CurrentWindow=null;player.UIManager=new UIManager();
+  var dailyButton=new UIWindow{name="Daily cards",count=1};
+  var story=new UIStoryCards{name="Story cards",count=0,HideOtherInterfacesWhenShown=true};
+  var offer=new FocusableGroup{name="Offer",count=3,story=story};story.children.Add(offer);
+  player.UIManager.Add(dailyButton);player.UIManager.Add(story);player.UIManager.CurrentWindow=story;
+  _selectedGroup=dailyButton;_selectionIsExplicit=true;_selectionIsForegroundDirected=false;_suspendedSelections.Clear();
+  dailyButton.IsVisible=false;FocusForegroundWindow(story);
+  Check(Frame(player)==offer&&_suspendedSelections.Count==1,"story offer captures the previous keyboard panel");
+  offer.count=0;
+  Check(Frame(player)==null&&_selectedGroup==offer&&_selectionIsForegroundDirected&&_suspendedSelections.Count==1,"empty offer preserves keyboard ownership and the return panel");
+  var nextOffer=new FocusableGroup{name="Next offer",count=2,story=story};story.children.Add(nextOffer);
+  Check(Frame(player)==nextOffer&&_selectionIsForegroundDirected&&_suspendedSelections.Count==1&&announced==nextOffer,"next hand receives focus without discarding the HUD return panel");
+  nextOffer.count=0;Frame(player);story.IsVisible=false;player.UIManager.CurrentWindow=null;
+  Check(Frame(player)==null&&_selectedGroup==nextOffer,"the empty closing frame also preserves the return state");
+  dailyButton.IsVisible=true;
+  Check(Frame(player)==dailyButton&&_selectionIsExplicit&&announced==dailyButton,"returning daily-card button is seeded and announced with keyboard ownership");
+
+  story.IsVisible=true;offer.count=3;player.UIManager.CurrentWindow=story;dailyButton.IsVisible=false;FocusForegroundWindow(story);Frame(player);
+  offer.count=0;Frame(player);story.IsVisible=false;player.UIManager.CurrentWindow=null;Frame(player);
+  dailyButton.IsVisible=true;dailyButton.count=0;
+  var progress=new UIWindow{name="Progress",count=12};player.UIManager.Add(progress);
+  Check(Frame(player)==progress&&_selectionIsExplicit&&announced==progress,"consumed daily-card button falls back to a usable HUD panel with keyboard ownership");
+  int settled=announcements;Frame(player);
+  Check(announcements==settled,"stable restored HUD does not announce every frame");
   return checks+" common-window routing checks passed.";
  }
 '@
