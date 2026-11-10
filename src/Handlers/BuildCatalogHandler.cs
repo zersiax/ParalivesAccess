@@ -12,6 +12,11 @@ namespace ParalivesAccess.Handlers
     /// </summary>
     public static class BuildCatalogHandler
     {
+        internal static bool TryGetContext(out string report)
+        {
+            report = _panel == null ? null : _panel.Name + ". " + _panel.Current?.Describe();
+            return report != null;
+        }
         /// <summary>Set false to disable the accessible build-catalogue browser.</summary>
         public static bool Enabled { get; set; } = true;
 
@@ -178,7 +183,7 @@ namespace ParalivesAccess.Handlers
             return true;
         }
 
-        private static void Open(HybridPlayer hybridPlayer)
+        internal static void Open(HybridPlayer hybridPlayer)
         {
             string conflict;
             if (!ModInputKey.IsAvailable(hybridPlayer, OpenKey, out conflict))
@@ -193,7 +198,11 @@ namespace ParalivesAccess.Handlers
 
             if (catalog == null || !catalog.IsVisible || hybridPlayer.Player.ItemInPlacement != null)
             {
-                Speak(Loc.Get("catalog_unavailable"));
+                bool mapZoom = hybridPlayer.Player.State == GameStates.BuildMode
+                    && hybridPlayer.Player.ItemInPlacement == null
+                    && hybridPlayer.Player.TownMapForFastTravelMethod == 0
+                    && hybridPlayer.IsInTownMap(checkForHouseholdStatus: false);
+                Speak(Loc.Get(mapZoom ? "catalog_town_map" : "catalog_unavailable"));
                 return;
             }
 
@@ -201,7 +210,7 @@ namespace ParalivesAccess.Handlers
             CaptureCameraBaseline(hybridPlayer);
             LogRuntimeFacts(hybridPlayer);
 
-            if (GetOrdinaryItems().Count > 0)
+            if (GetBrowsableItems().Count > 0)
             {
                 EnterItemPanel();
                 return;
@@ -245,6 +254,8 @@ namespace ParalivesAccess.Handlers
             if (pressed)
             {
                 _pressedEntry = _panel.Current;
+                if (_pressedEntry is SurfaceEntry && (keyboard.ctrlKey.isPressed || keyboard.altKey.isPressed || keyboard.shiftKey.isPressed))
+                { _pressedEntry = null; Speak(Loc.Get("floor_cover_release_modifiers")); return; }
                 var selectedItem = _pressedEntry as ItemEntry;
                 if (selectedItem != null && !selectedItem.IsAffordable)
                 {
@@ -276,7 +287,8 @@ namespace ParalivesAccess.Handlers
                 return;
             }
 
-            if (!entry.IsAvailable || (entry is ItemEntry item && !item.IsAffordable))
+            if (!entry.IsAvailable || (entry is ItemEntry item && !item.IsAffordable)
+                || (entry is SurfaceEntry && (keyboard.ctrlKey.isPressed || keyboard.altKey.isPressed || keyboard.shiftKey.isPressed)))
             {
                 if (target != null)
                 {
@@ -306,6 +318,20 @@ namespace ParalivesAccess.Handlers
 
         private static void OnGameEntryActivated(GameEntry entry)
         {
+            if (entry is SurfaceEntry surface)
+            {
+                var hybrid = PlayerManager.Instance?.HybridPlayer1;
+                if (hybrid?.Player == null || hybrid.Player.SelectedSurface != surface.SurfaceGuid
+                    || hybrid.Player.SelectedColors == null || hybrid.Player.SelectedColors.Length == 0)
+                { Speak(Loc.Get("catalog_surface_not_selected")); return; }
+                if (hybrid.Player.State == GameStates.Painting && hybrid.Player.PaintCategory == PaintCategory.Floors)
+                {
+                    Close(hybrid, announce: false, restoreCamera: true);
+                    FloorCoveringHandler.Open(hybrid);
+                }
+                else Speak(Loc.Get("catalog_surface_selected", CatalogEntryReader.SurfaceName(surface.SurfaceGuid)));
+                return;
+            }
             if (entry is CategoryEntry category)
             {
                 Plugin.Log.LogInfo(
@@ -374,9 +400,17 @@ namespace ParalivesAccess.Handlers
                 return;
             }
 
-            if (GetOrdinaryItems().Count > 0)
+            if (GetBrowsableItems().Count > 0)
             {
                 EnterItemPanel();
+                return;
+            }
+
+            if (WallConstructionHandler.Enabled && hybridPlayer.Player.State == GameStates.PlaceSegment
+                && hybridPlayer.Player.CurrentSegmentType == SegmentTypes.Wall
+                && !hybridPlayer.Player.CatalogueOpened)
+            {
+                Close(hybridPlayer, announce: false, restoreCamera: true);
                 return;
             }
 
@@ -408,7 +442,7 @@ namespace ParalivesAccess.Handlers
                 count++;
             }
 
-            int itemCount = GetOrdinaryItems().Count;
+            int itemCount = GetBrowsableItems().Count;
             if (itemCount > 0)
             {
                 panel.Add(new BrowseItemsEntry());
@@ -423,14 +457,14 @@ namespace ParalivesAccess.Handlers
 
             Plugin.Log.LogInfo(
                 $"[BuildCatalog] panel=categories, level={level}, path='{panel.Name}', "
-              + $"categories={count}, ordinaryItems={itemCount}.");
+              + $"categories={count}, catalogueRows={itemCount}.");
             _panel = panel;
             _panel.Enter();
         }
 
         private static void EnterItemPanel()
         {
-            List<UIBuildModeItem> items = GetOrdinaryItems();
+            List<UIBuildModeItem> items = GetBrowsableItems();
             if (items.Count == 0)
             {
                 int level = GetDeepestActiveCategoryLevel(0);
@@ -448,12 +482,13 @@ namespace ParalivesAccess.Handlers
             var panel = new VirtualPanel(GetPanelName(-1, showingItems: true));
             foreach (UIBuildModeItem item in items)
             {
-                panel.Add(new ItemEntry(item));
+                if (CatalogEntryReader.IsOrdinaryItem(item)) panel.Add(new ItemEntry(item));
+                else panel.Add(new SurfaceEntry(item));
             }
             panel.Add(new BackEntry(GetDeepestActiveCategoryLevel(0), fromItems: true));
 
             Plugin.Log.LogInfo(
-                $"[BuildCatalog] panel=items, path='{panel.Name}', ordinaryItems={items.Count}.");
+                $"[BuildCatalog] panel=items, path='{panel.Name}', catalogueRows={items.Count}.");
             _panel = panel;
             _panel.Enter();
         }
@@ -525,7 +560,7 @@ namespace ParalivesAccess.Handlers
             return -1;
         }
 
-        private static List<UIBuildModeItem> GetOrdinaryItems()
+        private static List<UIBuildModeItem> GetBrowsableItems()
         {
             var result = new List<UIBuildModeItem>();
             List<UIListItemBase> current = _catalog?.ItemList?.UIList?.CurrentItems;
@@ -537,7 +572,8 @@ namespace ParalivesAccess.Handlers
             foreach (UIListItemBase listItem in current)
             {
                 var item = listItem as UIBuildModeItem;
-                if (item != null && item.Interactable && item.ItemData != null
+                if (item != null && item.Interactable
+                    && (CatalogEntryReader.IsOrdinaryItem(item) || CatalogEntryReader.SurfaceOf(item) != null)
                     && item.gameObject.activeInHierarchy)
                 {
                     result.Add(item);
@@ -610,11 +646,12 @@ namespace ParalivesAccess.Handlers
                 }
             }
 
-            List<UIBuildModeItem> items = GetOrdinaryItems();
+            List<UIBuildModeItem> items = GetBrowsableItems();
             builder.Append("items=").Append(items.Count);
             foreach (UIBuildModeItem item in items)
             {
-                builder.Append(":").Append(item.ItemData.GUID).Append("/").Append(item.VariantIndex);
+                if (CatalogEntryReader.IsOrdinaryItem(item)) builder.Append(":item:").Append(item.ItemData.GUID).Append("/").Append(item.VariantIndex);
+                else builder.Append(":surface:").Append(CatalogEntryReader.SurfaceOf(item).GUID);
             }
             return builder.ToString();
         }
@@ -795,7 +832,7 @@ namespace ParalivesAccess.Handlers
             public override bool IsAvailable => _item != null
                 && _item.gameObject.activeInHierarchy
                 && _item.Interactable
-                && _item.ItemData != null
+                && CatalogEntryReader.IsOrdinaryItem(_item)
                 && _item.ItemData.GUID == _catalogueGuid
                 && _item.VariantIndex == _variantIndex;
             public override string Describe() => IsAvailable
@@ -803,10 +840,23 @@ namespace ParalivesAccess.Handlers
                 : null;
         }
 
+        private sealed class SurfaceEntry : GameEntry
+        {
+            private readonly UIBuildModeItem _item;
+            internal ulong SurfaceGuid { get; }
+            internal SurfaceEntry(UIBuildModeItem item)
+            { _item = item; SurfaceGuid = CatalogEntryReader.SurfaceOf(item).GUID; }
+            public override Focusable FocusTarget => _item;
+            public override bool IsAvailable => _item != null && _item.gameObject.activeInHierarchy
+                && _item.Interactable && CatalogEntryReader.SurfaceOf(_item)?.GUID == SurfaceGuid;
+            public override string Describe() => IsAvailable
+                ? Loc.Get("catalog_surface", CatalogEntryReader.SurfaceName(SurfaceGuid)) : null;
+        }
+
         private sealed class BrowseItemsEntry : VirtualPanel.IEntry
         {
-            public bool IsAvailable => GetOrdinaryItems().Count > 0;
-            public string Describe() => Loc.Get("catalog_browse_items", GetOrdinaryItems().Count);
+            public bool IsAvailable => GetBrowsableItems().Count > 0;
+            public string Describe() => Loc.Get("catalog_browse_items", GetBrowsableItems().Count);
             public void Activate() => EnterItemPanel();
         }
 

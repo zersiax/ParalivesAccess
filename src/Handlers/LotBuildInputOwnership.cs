@@ -22,6 +22,9 @@ namespace ParalivesAccess.Handlers
                     || OccupationHandler.OwnsInput
                     || BuildCatalogHandler.OwnsInput
                     || ItemPlacementHandler.OwnsInput
+                    || WallConstructionHandler.OwnsInput
+                    || FloorCoveringHandler.OwnsInput
+                    || LotCursorHandler.OwnsInput
                     || LotObjectHandler.OwnsInput;
             }
         }

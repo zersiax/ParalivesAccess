@@ -82,7 +82,7 @@ namespace ParalivesAccess.Handlers
 
         private static void ObserveLoadAndSelection(Player player)
         {
-            if (GameLoadingManager.State != State.Game || player == null)
+            if (GameLoadingManager.State != State.Game || player == null || player.State != GameStates.LiveMode)
             {
                 ResetForLoading();
                 return;
@@ -117,9 +117,9 @@ namespace ParalivesAccess.Handlers
 
         private static void SpeakOnDemand(Player player, int requestFrame)
         {
-            if (GameLoadingManager.State != State.Game || player == null)
+            if (GameLoadingManager.State != State.Game || player == null || player.State != GameStates.LiveMode)
             {
-                // WindowHandler owns the F3 unavailable response outside a playable game.
+                // WindowHandler owns context outside live mode; building has no Para report.
                 return;
             }
 

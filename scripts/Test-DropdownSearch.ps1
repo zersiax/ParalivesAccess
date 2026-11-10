@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 $env:DOTNET_PROCESSOR_COUNT = '1'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $handler = Get-Content -Raw -Encoding UTF8 (Join-Path $projectRoot 'src\Handlers\ContextMenuSearchHandler.cs')
-# Compile the production transition handler. These adapters model native selection and live list
+# Compile the production popup handler. These adapters model native selection and live list
 # membership; Unity's deferred text activation and speech still require the in-game check.
 $adapters = @'
 namespace UnityEngine {
@@ -33,9 +33,9 @@ namespace TMPro {
   public void ActivateInputField(){activations++;}
  }
 }
-public class Focusable:UnityEngine.Component {public bool skip;}
+public class Focusable:UnityEngine.Component {public bool skip;public string label;}
 public class FocusableGroup:UnityEngine.Component {}
-public class UIWindow:FocusableGroup {public bool IsVisible=true;}
+public class UIWindow:FocusableGroup {public bool IsVisible=true;public Focusable focused;public Focusable GetFocused(bool recursive)=>focused;}
 public class UIListItemBase:Focusable {}
 public class UIContextMenuWidgetItem:UIListItemBase {}
 public class UIList {public List<UIListItemBase> CurrentItems=new List<UIListItemBase>();}
@@ -50,6 +50,8 @@ namespace ParalivesAccess.Speech {
 }
 namespace ParalivesAccess.Handlers {
  public static class FocusNavigator {public static bool ShouldSkip(Focusable item)=>item.skip;}
+ public static class MenuNavigationHandler {public static Focusable Cursor;public static FocusableGroup CursorGroup;}
+ public static class UiLabelReader {public static string GetLabelOrFallback(Focusable item)=>item.label;}
  public static class DropdownSearchChecks {
   static int count;
   static void Check(bool condition,string name){if(!condition)throw new System.Exception(name);count++;}
@@ -88,10 +90,58 @@ namespace ParalivesAccess.Handlers {
    Check(!ContextMenuSearchHandler.TryLeaveSearch(window,down,out result)&&ContextMenuSearchHandler.GetLabel(input)==null,"hidden dropdowns cannot take input or provide stale search labels");
    window.IsVisible=true;input.gameObject.activeInHierarchy=false;
    Check(!ContextMenuSearchHandler.TryLeaveSearch(window,down,out result),"inactive native search cannot take input");
-   return count+" dropdown search checks passed; native rendering and speech remain pending.";
+
+   // Reproduce the household's one-option More options popup: foreground seeding is silent,
+   // and arrows cannot reach another row to trigger focus speech.
+   window.ShowSearchBox=false;events.SetSelectedGameObject(null);
+   window.ItemList.CurrentItems.Clear();window.ItemList.CurrentItems.Add(first);
+   first.label="Play without a lot";last.label="Another option";
+   MenuNavigationHandler.CursorGroup=window;MenuNavigationHandler.Cursor=first;
+   string one="panel_with_focus:window_opened_one:Options|Play without a lot";
+   int sentBefore=ScreenReader.Sent.Count;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)==one,"one-option popup names the silently focused Play without a lot action");
+   Check(ScreenReader.Sent.Count==sentBefore&&MenuNavigationHandler.Cursor==first&&events.currentSelectedGameObject==null,"describing the popup does not speak separately or change selection");
+   first.label="Updated action";
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)=="panel_with_focus:window_opened_one:Options|Updated action","reused popup reads the current label instead of caching the previous action");
+   first.label="Play without a lot";
+   var otherWindow=new UnityEngine.GameObject().AddComponent<UIContextMenuWidget>();
+   var otherRow=new UnityEngine.GameObject(otherWindow.gameObject).AddComponent<UIContextMenuWidgetItem>();otherRow.label="Unrelated action";
+   MenuNavigationHandler.CursorGroup=otherWindow;MenuNavigationHandler.Cursor=otherRow;window.focused=first;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)==one,"another panel's mod cursor uses this popup's native focus");
+   MenuNavigationHandler.CursorGroup=window;MenuNavigationHandler.Cursor=null;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)==one,"native focus is read when no mod cursor exists");
+   MenuNavigationHandler.Cursor=otherRow;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)=="window_opened_one:Options","a cursor belonging to another popup cannot leak its label");
+   MenuNavigationHandler.Cursor=first;window.ItemList.CurrentItems.Clear();window.ItemList.CurrentItems.Add(last);
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)=="window_opened_one:Options","pooled active rows outside CurrentItems are excluded");
+   window.ItemList.CurrentItems.Add(first);first.gameObject.activeInHierarchy=false;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)=="window_opened_one:Options","hidden selected rows cannot provide stale labels");
+   first.gameObject.activeInHierarchy=true;first.skip=true;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",1)=="window_opened_one:Options","non-navigable selected rows cannot provide labels");
+   first.skip=false;MenuNavigationHandler.Cursor=last;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",2)=="panel_with_focus:window_opened:Options|2|Another option","multiple-option popup names the actual cursor rather than always its first row");
+   input.gameObject.activeInHierarchy=true;window.ShowSearchBox=true;input.text="";input.Select();
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",2)=="panel_with_focus:window_opened:Options|2|dropdown_search:","native search ownership takes precedence over silently seeded result focus");
+   input.text="English";
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",2)=="panel_with_focus:window_opened:Options|2|dropdown_search_value:English","search opening reads the current query");
+   unrelated.Select();
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",2)=="panel_with_focus:window_opened:Options|2|Another option","an unrelated selected editor does not masquerade as popup search");
+   window.IsVisible=false;
+   Check(ContextMenuSearchHandler.DescribeOpening(window,"Options",2)==null&&ContextMenuSearchHandler.DescribeOpening(null,"Options",0)==null,"hidden or missing popups are not announced");
+   return count+" dropdown/popup checks passed; native rendering and speech remain pending.";
   }
  }
 }
 '@
 Add-Type -TypeDefinition ($handler + "`n" + $adapters) -Language CSharp
 [ParalivesAccess.Handlers.DropdownSearchChecks]::Run()
+
+# The combined announcement must be composed after silent foreground seeding, before the generic
+# title/count return. This guards the actual window lifecycle wiring as well as the helper above.
+$windowHandler = Get-Content -Raw -Encoding UTF8 (Join-Path $projectRoot 'src\Handlers\WindowHandler.cs')
+$settled = $windowHandler.Substring($windowHandler.IndexOf('private static string DescribeSettledWindow('))
+$seed = $settled.IndexOf('MenuNavigationHandler.FocusForegroundWindow(window);')
+$popup = $settled.IndexOf('ContextMenuSearchHandler.DescribeOpening(contextMenu, name, count);')
+$generic = $settled.IndexOf('if (count > 0 && !HasSemanticWindowSummary(window))')
+if ($seed -lt 0 -or $popup -le $seed -or $generic -le $popup) { throw 'Popup opening announcement is not wired after focus seeding and before generic window speech.' }
+Write-Host 'Popup announcement lifecycle wiring check passed.'

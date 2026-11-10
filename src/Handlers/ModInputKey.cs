@@ -11,6 +11,7 @@ namespace ParalivesAccess.Handlers
     {
         internal static bool WasPressed(Keyboard keyboard, Key key)
         {
+            if (key == Key.F11 && CameraPitchHandler.ConsumedThisFrame) return false;
             KeyControl control = GetControl(keyboard, key);
             return control != null && control.wasPressedThisFrame;
         }

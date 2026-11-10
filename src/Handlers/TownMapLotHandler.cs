@@ -51,6 +51,7 @@ namespace ParalivesAccess.Handlers
         private static ActiveTravelFollow _activeTravelFollow;
         private static bool _nativeWindowSuspensionLogged;
         private static bool _nativeWindowLookupFailureLogged;
+        private static ulong _observedFastTravelMethod;
 
         private sealed class ViewState
         {
@@ -177,6 +178,18 @@ namespace ParalivesAccess.Handlers
                     Plugin.Log.LogInfo("[TownMap] input resumed after native foreground window closed.");
                 }
 
+                ulong fastTravel = hybridPlayer.Player.TownMapForFastTravelMethod;
+                if (fastTravel != _observedFastTravelMethod)
+                {
+                    _observedFastTravelMethod = fastTravel;
+                    ClearPanelOwnership();
+                    if (fastTravel != 0UL)
+                    {
+                        ScreenReader.Speak(Loc.Get("transit_destinations_pending"));
+                        return;
+                    }
+                }
+
                 if (keyboard.lKey.wasPressedThisFrame)
                 {
                     Toggle(hybridPlayer);
@@ -225,12 +238,14 @@ namespace ParalivesAccess.Handlers
             _panel = Build(hybridPlayer);
             if (_panel == null)
             {
-                ScreenReader.Speak(Loc.Get("lots_none"));
+                ScreenReader.Speak(Loc.Get(hybridPlayer.Player.TownMapForFastTravelMethod != 0UL
+                    ? "transit_destinations_pending" : "lots_none"));
                 return;
             }
 
             _panel.Enter();
-            ScreenReader.Speak(Loc.Get("lots_details_hint"), interrupt: false);
+            if (hybridPlayer.Player.TownMapForFastTravelMethod == 0UL)
+                ScreenReader.Speak(Loc.Get("lots_details_hint"), interrupt: false);
         }
 
         /// <summary>F3 reads the actual L-browser selection's name/address, tooltip and description.</summary>
@@ -258,6 +273,14 @@ namespace ParalivesAccess.Handlers
         {
             ClearPanelOwnership();
             ScreenReader.Speak(Loc.Get("lots_closed"));
+        }
+
+        /// <summary>Releases an ordinary map browser before the household shortcut reframes.</summary>
+        internal static void CloseForParaSwitch()
+        {
+            ClearPanelOwnership();
+            _activeTravelFollow = null;
+            _pendingTravelMenu = null;
         }
 
         private static void ClearPanelOwnership()
@@ -355,6 +378,9 @@ namespace ParalivesAccess.Handlers
             UITownMap map = UI.Instance != null && hybridPlayer.Player != null
                 ? UI.GetOrNull<UITownMap>(hybridPlayer.Player.PlayerIndex)
                 : null;
+
+            if (hybridPlayer.Player.TownMapForFastTravelMethod != 0UL)
+                return BuildFastTravelPanel(map, hybridPlayer.Player);
 
             if (map == null || map.TownMapIcons == null)
             {
@@ -1047,6 +1073,85 @@ namespace ParalivesAccess.Handlers
         }
 
         /// <summary>One lot in the list.</summary>
+        private static VirtualPanel BuildFastTravelPanel(UITownMap map, Player player)
+        {
+            if (map == null || !map.IsVisible || map.FastTravelIcons == null) return null;
+            var panel = new VirtualPanel(Loc.Get("transit_destinations"));
+            var stops = new List<FastTravelEntry>();
+            foreach (var pair in map.FastTravelIcons)
+            {
+                ItemObjectRoot root = ItemManager.Instance?.GetItemByInstanceID(pair.Key);
+                var entry = new FastTravelEntry(map, player, pair.Key, pair.Value, root);
+                if (entry.IsAvailable) stops.Add(entry);
+            }
+            stops.Sort((left, right) => string.Compare(left.Describe(), right.Describe(),
+                StringComparison.CurrentCultureIgnoreCase));
+            foreach (FastTravelEntry stop in stops) panel.Add(stop);
+            panel.Add(new FastTravelEntry(map, player, -1, null, null));
+            Plugin.Log.LogInfo($"[Transit] native destinations={stops.Count}, "
+                + $"method={player.TownMapForFastTravelMethod}, actor={player.CharacterForFastTravel}.");
+            return panel;
+        }
+
+        private sealed class FastTravelEntry : VirtualPanel.IEntry
+        {
+            private readonly UITownMap _map;
+            private readonly Player _player;
+            private readonly ulong _method;
+            private readonly ulong _actor;
+            private readonly int _instanceId;
+            private readonly UITownMapFastTravelButton _button;
+            private readonly ItemObjectRoot _root;
+
+            internal FastTravelEntry(UITownMap map, Player player, int instanceId,
+                UITownMapFastTravelButton button, ItemObjectRoot root)
+            {
+                _map = map;
+                _player = player;
+                _method = player.TownMapForFastTravelMethod;
+                _actor = player.CharacterForFastTravel;
+                _instanceId = instanceId;
+                _button = button;
+                _root = root;
+            }
+
+            public bool IsAvailable => _map != null && _map.IsVisible
+                && ReferenceEquals(PlayerManager.Instance?.HybridPlayer1?.Player, _player)
+                && _method != 0UL && _player.TownMapForFastTravelMethod == _method
+                && _actor != 0UL && _player.CharacterForFastTravel == _actor
+                && (_instanceId == -1 || (_button != null && _button.gameObject.activeInHierarchy
+                    && _map.FastTravelIcons.TryGetValue(_instanceId, out var current) && current == _button
+                    && WorldTargeting.IsSameLiveItem(_root, _instanceId)));
+
+            public string Describe()
+            {
+                if (_instanceId == -1) return Loc.Get("transit_cancel");
+                string name = ItemDescription.GetProductIdentity(_root) ?? Loc.Get("transit_stop");
+                string id = _button?.FastTravelIDLabel?.text;
+                return string.IsNullOrWhiteSpace(id) ? name
+                    : Loc.Get("transit_destination", id, name);
+            }
+
+            public void Activate()
+            {
+                if (!IsAvailable) { ScreenReader.Speak(Loc.Get("transit_destination_gone")); return; }
+                ClearPanelOwnership();
+                LotBuildInputOwnership.HoldThroughCurrentFrame();
+                if (_instanceId == -1)
+                {
+                    _map.CancelFastTravel();
+                    ScreenReader.Speak(Loc.Get("transit_cancelled"));
+                }
+                else
+                {
+                    string label = Describe();
+                    Plugin.Log.LogInfo($"[Transit] activate native destination={_instanceId}, actor={_actor}.");
+                    _button.Clicked();
+                    ScreenReader.Speak(Loc.Get("transit_chosen", label));
+                }
+            }
+        }
+
         private sealed class LotEntry : VirtualPanel.IEntry
         {
             private readonly UITownMapLotIcon _icon;

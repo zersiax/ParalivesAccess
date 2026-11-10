@@ -28,12 +28,24 @@ public class UIWindow:FocusableGroup {public UIWindow(){Owner=this;}}
 public class UILotInfo:UIWindow {public string Details;}
 public class UIOccupationsChangeSchedule:UIWindow {}
 public class UICharacters:UIWindow {}
+public class UIForm:UIWindow {}
+public class UIBuildModeCatalog:UIWindow {}
+public enum GameStates {LiveMode,BuildMode}
+public class Player {public int PlayerIndex;public GameStates State;public object ItemInPlacement;public bool PlayerActionBlockedByUIWindow;}
 public class UIPremadeHouseholdSelection:UIWindow {}
 public class UIManager {public UIWindow CurrentWindow;}
-public class HybridPlayer {public UIManager UIManager=new UIManager();}
+public class HybridPlayer {public Player Player=new Player();public bool HasInputFieldFocused;public UIManager UIManager=new UIManager();}
 public class PlayerManager {public static PlayerManager Instance=new PlayerManager();public HybridPlayer HybridPlayer1=new HybridPlayer();}
 public static class UI {public static T GetOrNull<T>(int player) where T:class=>null;}
 namespace ParalivesAccess.Handlers {
+ public static class CoordinateEntryHandler {public static string Report;public static string DescribeForm(UIWindow window)=>Report;}
+ public static class LotCursorHandler {public static string Report;public static bool TryGetContext(out string report){report=PlayerManager.Instance.HybridPlayer1.Player.PlayerActionBlockedByUIWindow?null:Report;return report!=null;}}
+ public static class BuildCameraHandler {public static bool TryGetContext(HybridPlayer h,out string report){report=h.Player.State==GameStates.BuildMode&&!h.Player.PlayerActionBlockedByUIWindow&&!h.HasInputFieldFocused?"Camera location":null;return report!=null;}}
+ public static class BuildCatalogHandler {public static string Report;public static bool TryGetContext(out string report){report=Report;return report!=null;}}
+ public static class LotObjectHandler {public static string Report;public static bool TryGetContext(out string report){report=Report;return report!=null;}}
+ public static class FloorCoveringHandler {public static string Report;public static bool TryGetContext(HybridPlayer player,out string report){report=Report;return report!=null;}}
+ public static class WallConstructionHandler {public static string Report;public static bool TryGetContext(HybridPlayer player,out string report){report=Report;return report!=null;}}
+ public static class ItemPlacementHandler {public static string Report;public static bool TryGetContext(HybridPlayer player,out string report){report=Report;return report!=null;}}
  public static class Loc {public static string Get(string key,params object[] values)=>key+"("+string.Join("|",values)+")";}
  public static class MenuNavigationHandler {public static FocusableGroup ActivePanel,CursorGroup;public static Focusable Cursor;public static string GetPanelDisplayName(FocusableGroup panel)=>panel.Name;}
  public static class FocusNavigator {public static bool ShouldSkip(Focusable f)=>f.Skip;}
@@ -59,6 +71,15 @@ namespace ParalivesAccess.Handlers {
   static void Check(bool pass,string label){if(!pass)throw new Exception(label);checks++;}
   public static string Run(){
    var player=PlayerManager.Instance.HybridPlayer1;
+   ItemPlacementHandler.Report="Desk preview. Column 4, row 5";
+   Check(BuildContextReport(player)==ItemPlacementHandler.Report,"placement owns its live F3 report");
+   ItemPlacementHandler.Report=null;
+   WallConstructionHandler.Report="Wall preview. Construction column 4, row 5";
+   Check(BuildContextReport(player)==WallConstructionHandler.Report,"construction owns its live F3 report");
+   WallConstructionHandler.Report=null;
+   FloorCoveringHandler.Report="Floor covering. Target 1, layer 0";
+   Check(BuildContextReport(player)==FloorCoveringHandler.Report,"floor covering owns its F3 report");
+   FloorCoveringHandler.Report=null;
    var native=new UIWindow{Name="Pause"};MenuNavigationHandler.ActivePanel=native;MenuNavigationHandler.CursorGroup=native;MenuNavigationHandler.Cursor=new Focusable{Label="Resume"};
    var lot=new TownMapLotHandler.LotEntry{Details="50 Leblanc Street. Community Center. Hours: 7 to 23."};
    TownMapLotHandler._panel.Current=lot;
@@ -79,6 +100,19 @@ namespace ParalivesAccess.Handlers {
    info.Details=null;Check(BuildContextReport(player)==Loc.Get("context_report","Lot Info","Lot Info","Close"),"missing native lot details retain normal context fallback");
    TownMapLotHandler.Enabled=false;TownMapLotHandler.OwnsInput=true;MenuNavigationHandler.ActivePanel=native;MenuNavigationHandler.CursorGroup=native;MenuNavigationHandler.Cursor=new Focusable{Label="Resume"};
    Check(BuildContextReport(player)==Loc.Get("context_report","Pause","Pause","Resume"),"disabled L handler cannot hide the ordinary context report");
+   CoordinateEntryHandler.Report="Room size. Width; depth. Current text: 4; 4. Enter reviews.";BuildCatalogHandler.Report="Catalogue";LotObjectHandler.Report="Outdoor area";
+   Check(BuildContextReport(player)==CoordinateEntryHandler.Report,"native size form instructions take precedence over background explorers");CoordinateEntryHandler.Report=null;
+   Check(BuildContextReport(player)==BuildCatalogHandler.Report,"F6 reports its own semantic selection");BuildCatalogHandler.Report=null;
+   Check(BuildContextReport(player)==LotObjectHandler.Report,"F7 reports its own semantic selection");player.Player.PlayerActionBlockedByUIWindow=true;
+   Check(BuildContextReport(player).Contains("Resume"),"native modal context wins over retained lot explorer");player.Player.PlayerActionBlockedByUIWindow=false;LotObjectHandler.Report=null;
+   var catalog=new UIBuildModeCatalog{Name="Build catalog"};MenuNavigationHandler.ActivePanel=catalog;MenuNavigationHandler.CursorGroup=catalog;player.Player.State=GameStates.BuildMode;
+   Check(BuildContextReport(player)=="Camera location","idle build F3 describes the camera instead of repeating controls");
+   MenuNavigationHandler.ActivePanel=null;Check(BuildContextReport(player)=="Camera location","camera location does not depend on a retained catalogue panel");
+   LotCursorHandler.Report="Lot cursor, floor layer 0. Column 4, row 8. Living room";
+   Check(BuildContextReport(player)==LotCursorHandler.Report,"free lot cursor takes F3 before the idle camera report");
+   player.Player.PlayerActionBlockedByUIWindow=true;MenuNavigationHandler.ActivePanel=native;MenuNavigationHandler.CursorGroup=native;
+   Check(BuildContextReport(player).Contains("Resume"),"modal context still wins over idle camera report");
+   LotCursorHandler.Report=null;
    return checks+" lot-context checks passed; audible delivery remains a runtime check.";
   }
  }

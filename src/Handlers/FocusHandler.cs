@@ -229,6 +229,7 @@ namespace ParalivesAccess.Handlers
         public static void IsMouseHoveredPostfix(Focusable __instance, bool __state)
         {
             if (!AnnounceHover || !__state || __instance == null
+                || (ItemPlacementHandler.OwnsInput && __instance.GetComponentInParent<UIBuildModeCatalog>() != null)
                 || FocusNavigator.ShouldSkip(__instance)
                 || SaveGameListHandler.ShouldSuppressScrollHover(__instance)
                 || SettingsHandler.ShouldSuppressScrollHover(__instance)

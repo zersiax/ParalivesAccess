@@ -25,7 +25,7 @@ namespace ParalivesAccess.Probes
 
         internal static void Install()
         {
-            if (!Enabled || _installed) return;
+            if (!Enabled || _installed || Keyboard.current == null) return;
             try
             {
                 InputSystem.onEvent += OnInputEvent;

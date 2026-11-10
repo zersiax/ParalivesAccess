@@ -104,7 +104,7 @@ namespace ParalivesAccess.Handlers {
   static int count;static void Check(bool b,string label){if(!b)throw new Exception(label);count++;}
   static AssetCharacter Para(ulong g){var c=new AssetCharacter{GUID=g};c.Data.FullName="Para "+g;AssetManager.Instance.characters[g]=c;return c;}
   class Entry:IParaSelectionEntry {public bool IsAvailable{get;set;}=true;public int Toggles,Clicks;public string Describe()=>"para";public void Activate(){Clicks++;}public void ToggleSelection(){Toggles++;}}
-  class ObjectEntry:VirtualPanel.IEntry {public bool IsAvailable=>true;public int Clicks;public string Describe()=>"object";public void Activate(){Clicks++;}}
+  class ObjectEntry:VirtualPanel.IEntry {public bool IsAvailable{get;set;}=true;public int Clicks;public string Describe()=>"object";public void Activate(){Clicks++;}}
   public static string Run(){
    var a=Para(1);var b=Para(2);var townie=Para(3);var p=GetPlayer();
    Check(CanToggleParaSelection(townie),"ordinary townie can be added outside the tutorial");
@@ -135,7 +135,11 @@ namespace ParalivesAccess.Handlers {
    k=new Keyboard();k.enterKey.wasPressedThisFrame=true;k.enterKey.wasReleasedThisFrame=true;HandleEnter(k);Check(e.Clicks==1&&e.Toggles==2,"plain Enter keeps ordinary activation");
    k=new Keyboard();k.enterKey.wasPressedThisFrame=true;k.leftShiftKey.isPressed=true;HandleEnter(k);_panel.Move(1);k.enterKey.wasPressedThisFrame=false;k.enterKey.wasReleasedThisFrame=true;HandleEnter(k);Check(e2.Toggles==0&&e.Toggles==2,"moving focus mid-gesture cannot select a different Para");
    _panel.EnterSilently(e);k=new Keyboard();k.enterKey.wasPressedThisFrame=true;HandleEnter(k);e.IsAvailable=false;k.enterKey.wasPressedThisFrame=false;k.enterKey.wasReleasedThisFrame=true;HandleEnter(k);Check(e.Clicks==1,"vanished target cannot activate on release");
-   var obj=new ObjectEntry();_panel=new VirtualPanel("object");_panel.Add(obj);_panel.EnterSilently();k=new Keyboard();k.enterKey.wasPressedThisFrame=true;k.enterKey.wasReleasedThisFrame=true;k.leftShiftKey.isPressed=true;HandleEnter(k);Check(obj.Clicks==0&&ScreenReader.Last.StartsWith("explorer_selection_shortcut_requires_para"),"Shift Enter on an object does not accidentally open its action");
+   var obj=new ObjectEntry();_panel=new VirtualPanel("object");_panel.Add(obj);_panel.EnterSilently();k=new Keyboard();k.enterKey.wasPressedThisFrame=true;k.enterKey.wasReleasedThisFrame=true;k.leftShiftKey.isPressed=true;HandleEnter(k);Check(obj.Clicks==1,"Shift only modifies Para selection; ordinary entries still activate");
+   k=new Keyboard();k.numpadEnterKey.wasPressedThisFrame=true;k.rightShiftKey.isPressed=true;HandleEnter(k);Check(obj.Clicks==1,"held right Shift does not activate a non-Para entry until Enter release");
+   k.numpadEnterKey.wasPressedThisFrame=false;k.numpadEnterKey.wasReleasedThisFrame=true;HandleEnter(k);Check(obj.Clicks==2,"held right Shift permits ordinary activation on numpad Enter release");
+   HandleEnter(k);Check(obj.Clicks==2,"repeated releases cannot activate the same entry again");
+   k=new Keyboard();k.enterKey.wasPressedThisFrame=true;k.rightShiftKey.isPressed=true;HandleEnter(k);obj.IsAvailable=false;k.enterKey.wasPressedThisFrame=false;k.enterKey.wasReleasedThisFrame=true;HandleEnter(k);Check(obj.Clicks==2,"Shift still cannot activate an entry that disappeared during the gesture");
    return count+" Para-selection checks passed.";
   }
 '@

@@ -1429,10 +1429,15 @@ namespace ParalivesAccess.Handlers
         /// </remarks>
         private static FocusableGroup ResolveActiveGroup(UIWindow gameDrivenWindow)
         {
+            // Picking a story card briefly leaves no reachable offer before the HUD returns.
+            // Keep keyboard ownership and the return stack through that empty presentation.
+            UIStoryCards storyCards = _selectedGroup != null
+                ? _selectedGroup.GetComponentInParent<UIStoryCards>() : null;
+            bool leavingStoryCards = storyCards != null;
             if (_candidates.Count == 0)
             {
                 // Preserve the return selection while a common window populates its controls.
-                if (IsBlockingCommonWindow(gameDrivenWindow)) return null;
+                if (IsBlockingCommonWindow(gameDrivenWindow) || leavingStoryCards) return null;
                 _selectedGroup = null;
                 _selectionIsExplicit = false;
                 _selectionIsTutorialDirected = false;
@@ -1451,7 +1456,7 @@ namespace ParalivesAccess.Handlers
             // A foreground window closed. Restore the panel it displaced, including whether that
             // panel belonged to the user or to an earlier nested foreground window (for example,
             // lot information -> purchase prompt -> lot information).
-            if (_selectionIsForegroundDirected)
+            if (_selectionIsForegroundDirected && (storyCards == null || !storyCards.IsVisible))
             {
                 while (_suspendedSelections.Count > 0)
                 {
@@ -1467,6 +1472,7 @@ namespace ParalivesAccess.Handlers
                     _selectionIsForegroundDirected = suspended.IsForegroundDirected;
                     Plugin.Log.LogInfo(
                         $"[Nav] Foreground window closed; restored panel '{_selectedGroup.name}'.");
+                    if (leavingStoryCards) FocusPanelAndAnnounce(_selectedGroup, -1, null);
                     return _selectedGroup;
                 }
             }
@@ -1496,6 +1502,14 @@ namespace ParalivesAccess.Handlers
             }
 
             _selectedGroup = fullest;
+            if (leavingStoryCards)
+            {
+                // The daily-card button can disappear when its last offer is consumed. If the
+                // old panel is gone, enter the available replacement with working arrows/Enter.
+                _selectionIsForegroundDirected = storyCards.IsVisible;
+                _selectionIsExplicit = !storyCards.IsVisible;
+                FocusPanelAndAnnounce(fullest, -1, null);
+            }
             return fullest;
         }
 
