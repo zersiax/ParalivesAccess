@@ -59,25 +59,40 @@ namespace ParalivesAccess.Handlers
         }
 
         /// <summary>
-        /// Returns a compact product-first identity followed by the native localized catalogue
-        /// name. Items without an authored product title retain their previous name unchanged.
+        /// Returns the product and collection names with the native interaction heading, so an
+        /// object's function is available before opening its menu or buying it.
         /// </summary>
         internal static string GetProductIdentity(CatalogueItem item, ulong skinGuid)
         {
+            return BuildProductIdentity(item, skinGuid, ItemInteractionNameReader.GetName(item, skinGuid));
+        }
+
+        internal static string GetBriefIdentity(ItemObjectRoot root)
+        {
+            if (root == null) return null;
+            var item = Settings.Get<Items>()?.GetItemByGUID(root.CatalogueGUID);
+            return item == null ? GetProductIdentity(root)
+                : BuildProductIdentity(item, root.CurrentSkinGUID, ItemInteractionNameReader.GetName(root), false);
+        }
+
+        private static string BuildProductIdentity(CatalogueItem item, ulong skinGuid, string interactionName, bool includeCollection = true)
+        {
             string catalogueName = GetName(item, skinGuid);
             string productName = GetAuthoredProductName(item);
-            if (string.IsNullOrEmpty(productName))
-            {
-                return catalogueName;
-            }
-            if (string.IsNullOrEmpty(catalogueName)
+            string identity = catalogueName;
+            if (!string.IsNullOrEmpty(productName))
+                identity = !includeCollection || string.IsNullOrEmpty(catalogueName)
                 || string.Equals(
-                    productName, catalogueName, StringComparison.CurrentCultureIgnoreCase))
-            {
-                return productName;
-            }
+                    productName, catalogueName, StringComparison.CurrentCultureIgnoreCase)
+                    ? productName
+                    : Loc.Get("item_product_identity", productName, catalogueName);
 
-            return Loc.Get("item_product_identity", productName, catalogueName);
+            if (string.IsNullOrEmpty(interactionName)
+                || string.Equals(interactionName, catalogueName, StringComparison.CurrentCultureIgnoreCase)
+                || string.Equals(interactionName, productName, StringComparison.CurrentCultureIgnoreCase))
+                return identity;
+            return string.IsNullOrEmpty(identity) ? interactionName
+                : Loc.Get("label_with_detail", identity, interactionName);
         }
 
         /// <summary>Resolves the compact product identity for a placed object.</summary>
@@ -91,7 +106,7 @@ namespace ParalivesAccess.Handlers
             try
             {
                 CatalogueItem item = Settings.Get<Items>()?.GetItemByGUID(root.CatalogueGUID);
-                return GetProductIdentity(item, root.CurrentSkinGUID);
+                return BuildProductIdentity(item, root.CurrentSkinGUID, ItemInteractionNameReader.GetName(root));
             }
             catch (Exception ex)
             {
@@ -145,7 +160,7 @@ namespace ParalivesAccess.Handlers
                 return GetName(root);
             }
 
-            return GetShopProductName(item, root.CurrentSkinGUID);
+            return GetShopProductName(item, root.CurrentSkinGUID, GetProductIdentity(root));
         }
 
         /// <summary>
@@ -154,13 +169,17 @@ namespace ParalivesAccess.Handlers
         /// </summary>
         internal static string GetShopProductName(CatalogueItem item, ulong skinGuid)
         {
+            return GetShopProductName(item, skinGuid, GetProductIdentity(item, skinGuid));
+        }
+
+        private static string GetShopProductName(CatalogueItem item, ulong skinGuid, string productIdentity)
+        {
             if (item == null)
             {
                 return null;
             }
 
             string nativeName = GetName(item, skinGuid);
-            string productIdentity = GetProductIdentity(item, skinGuid);
             string category = GetCategory(item);
             if (!string.IsNullOrEmpty(category))
             {
@@ -457,13 +476,13 @@ namespace ParalivesAccess.Handlers
             ItemObjectRoot parent = root.ItemPlacedOn;
             if (parent != null)
             {
-                return Loc.Get("item_on_parent", GetName(parent) ?? Loc.Get("item_unknown"));
+                return Loc.Get("item_on_parent", GetProductIdentity(parent) ?? Loc.Get("item_unknown"));
             }
 
             parent = root.ItemAttachedTo;
             if (parent != null)
             {
-                return Loc.Get("item_attached_parent", GetName(parent) ?? Loc.Get("item_unknown"));
+                return Loc.Get("item_attached_parent", GetProductIdentity(parent) ?? Loc.Get("item_unknown"));
             }
 
             if (root.FloorPlacedOn != null)

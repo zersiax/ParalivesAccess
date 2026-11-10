@@ -38,7 +38,7 @@ namespace ParalivesAccess
         public const string PluginName = "ParalivesAccess";
 
         /// <summary>Plugin version.</summary>
-        public const string PluginVersion = "0.40.2";
+        public const string PluginVersion = "0.52.18";
 
         /// <summary>Shared logger so handlers and probes log under the plugin's name.</summary>
         public static ManualLogSource Log { get; private set; }
@@ -56,8 +56,18 @@ namespace ParalivesAccess
             ContextDeliveryProbe.Enabled = Config.Bind(
                 "Diagnostics", "ContextDeliveryAudit", true,
                 "Traces F3 keyboard events and native speech submission metadata to diagnose silent context reports.").Value;
-            ContextDeliveryProbe.Install();
-            ContextKeyInput.Install();
+
+            ItemPlacementHandler.GridSpacingMetres = Config.Bind(
+                "BuildMode", "GridSpacingMetres", 0.5f,
+                new BepInEx.Configuration.ConfigDescription(
+                    "Physical spacing of the accessibility placement grid. Shift uses one fifth of this spacing.",
+                    new BepInEx.Configuration.AcceptableValueRange<float>(0.05f, 2f))).Value;
+            if (!PlacementGrid.Finite(ItemPlacementHandler.GridSpacingMetres))
+            {
+                ItemPlacementHandler.Enabled = false;
+                Log.LogError("GridSpacingMetres is not finite; keyboard placement is disabled.");
+                ScreenReader.Speak(Loc.Get("placement_grid_unavailable"));
+            }
 
             BuildCatalogHandler.OpenKey = Config.Bind(
                 "Keyboard",
@@ -82,6 +92,46 @@ namespace ParalivesAccess
             ParaSwitchHandler.SwitchKey = Config.Bind(
                 "Keyboard", "SwitchHouseholdParaKey", Key.F9,
                 "Select and follow the next household Para. Hold Shift for the previous Para.").Value;
+            WallConstructionHandler.RectangleKey = Config.Bind(
+                "Keyboard", "RectangleRoomKey", Key.R,
+                "Plans four straight walls from two corners in the native wall tool. Each wall requires Enter.").Value;
+            LotDescriptionHandler.DescribeKey = Config.Bind(
+                "Keyboard", "DescribeLotKey", Key.J,
+                "J or N. Describes the room under the camera, or the lot when outdoors. Shift always describes the whole lot.").Value;
+            if (LotDescriptionHandler.DescribeKey != Key.J && LotDescriptionHandler.DescribeKey != Key.N)
+            {
+                // These unallocated letters avoid collisions with fixed build commands and forms.
+                LotDescriptionHandler.DescribeKey = Key.None;
+                Log.LogError("DescribeLotKey must be J or N; the shortcut is disabled.");
+            }
+            if (LotDescriptionHandler.DescribeKey == WallConstructionHandler.RectangleKey
+                || LotDescriptionHandler.DescribeKey == ParaSwitchHandler.SwitchKey
+                || LotDescriptionHandler.DescribeKey == VirtualAudioListenerHandler.ToggleKey
+                || LotDescriptionHandler.DescribeKey == BuildCatalogHandler.OpenKey
+                || LotDescriptionHandler.DescribeKey == LotObjectHandler.OpenKey
+                || LotDescriptionHandler.DescribeKey == ContextActionHandler.ActionKey)
+            {
+                LotDescriptionHandler.DescribeKey = Key.None;
+                Log.LogError("DescribeLotKey conflicts with another accessibility command; the description shortcut is disabled.");
+            }
+            if (WallConstructionHandler.RectangleKey == Key.F3
+                || WallConstructionHandler.RectangleKey == ContextActionHandler.ActionKey
+                || WallConstructionHandler.RectangleKey == BuildCatalogHandler.OpenKey
+                || WallConstructionHandler.RectangleKey == LotObjectHandler.OpenKey
+                || WallConstructionHandler.RectangleKey == VirtualAudioListenerHandler.ToggleKey
+                || WallConstructionHandler.RectangleKey == ParaSwitchHandler.SwitchKey
+                || WallConstructionHandler.RectangleKey == Key.Home
+                || WallConstructionHandler.RectangleKey == Key.Enter
+                || WallConstructionHandler.RectangleKey == Key.NumpadEnter
+                || WallConstructionHandler.RectangleKey == Key.Escape
+                || WallConstructionHandler.RectangleKey == Key.LeftArrow
+                || WallConstructionHandler.RectangleKey == Key.RightArrow
+                || WallConstructionHandler.RectangleKey == Key.UpArrow
+                || WallConstructionHandler.RectangleKey == Key.DownArrow)
+            {
+                WallConstructionHandler.RectangleKey = Key.None;
+                Log.LogError("RectangleRoomKey conflicts with another accessibility command; the rectangle shortcut is disabled.");
+            }
             if (ParaSwitchHandler.SwitchKey == Key.F3
                 || ParaSwitchHandler.SwitchKey == ContextActionHandler.ActionKey
                 || ParaSwitchHandler.SwitchKey == BuildCatalogHandler.OpenKey
@@ -152,10 +202,58 @@ namespace ParalivesAccess
                   + "until the keys differ.");
             }
 
+            TimeDateHandler.ConfigureKey(Config.Bind(
+                "Keyboard", "ReadTimeDateKey", Key.F2,
+                "Reads the current in-game time and full date without leaving the current activity. Use an unused function key, or None to disable.").Value);
+
+            LotObjectHandler.ConfigureParaListKey(Config.Bind("Keyboard", "LotParasKey", Key.F7,
+                "Hold Control with this function key to open the current lot's Paras in live mode. Default Ctrl+F7; None disables.").Value);
+
+            LotCursorHandler.OpenKey = Config.Bind("Keyboard", "LotCursorKey", Key.N,
+                "N toggles free lot exploration without a build preview. None disables the shortcut.").Value;
+            if ((LotCursorHandler.OpenKey != Key.N && LotCursorHandler.OpenKey != Key.None)
+                || LotCursorHandler.OpenKey == BuildCatalogHandler.OpenKey
+                || LotCursorHandler.OpenKey == LotObjectHandler.OpenKey
+                || LotCursorHandler.OpenKey == ContextActionHandler.ActionKey
+                || LotCursorHandler.OpenKey == VirtualAudioListenerHandler.ToggleKey
+                || LotCursorHandler.OpenKey == ParaSwitchHandler.SwitchKey
+                || LotCursorHandler.OpenKey == WallConstructionHandler.RectangleKey || LotCursorHandler.OpenKey == LotDescriptionHandler.DescribeKey)
+                LotCursorHandler.OpenKey = Key.None;
+
             bool speechOk = ScreenReader.Initialize();
 
             Harmony harmony = new Harmony(PluginGuid);
             HookGameLoop(harmony);
+            LotCursorHandler.Enabled = LotCursorHandler.ApplyPatches(harmony);
+            if (!LotCursorHandler.Enabled) Log.LogError("Lot cursor disabled: native input hooks could not be verified.");
+            ExistingItemEditHandler.Enabled = ExistingItemEditHandler.ApplyPatches(harmony);
+            CoordinateEntryHandler.Enabled = CoordinateEntryHandler.ApplyPatches(harmony);
+            RoomLabelHandler.Enabled = RoomLabelHandler.ApplyPatches(harmony);
+            if (!RoomLabelHandler.Enabled) Log.LogError("Room naming disabled: save hooks could not be verified.");
+            if (!ItemPlacementHandler.ApplyPatches(harmony))
+                DisableLotBuildHandlers("the placement modifier isolation hook is unavailable");
+            PlacementActionsHandler.Enabled = PlacementActionsHandler.ApplyPatches(harmony);
+            LinkedGroupRecovery.Enabled = LinkedGroupRecovery.ApplyPatches(harmony);
+            RoomFitSearch.Enabled = RoomFitSearch.ApplyPatches(harmony);
+            CeilingPlacementHandler.Enabled = CeilingPlacementHandler.ApplyPatches(harmony);
+            if (!PlacementActionsHandler.Enabled) Log.LogError("Placement actions disabled: native input isolation hooks could not be verified.");
+            if (!ExistingItemEditHandler.Enabled) Log.LogError("Existing-item editing disabled: native lifecycle hooks could not be verified.");
+            if (!CoordinateEntryHandler.Enabled) Log.LogError("Coordinate entry disabled: native form identity or input isolation hooks could not be verified.");
+            if (!SlotPlacementHandler.ApplyPatches(harmony))
+            {
+                SlotPlacementHandler.Enabled = false;
+                Log.LogError("Slot placement disabled: native movement/confirmation hooks are unavailable.");
+            }
+            if (!WallItemPlacementHandler.ApplyPatches(harmony))
+            {
+                WallItemPlacementHandler.Enabled = false;
+                Log.LogError("Wall-item placement disabled: native movement/confirmation hooks are unavailable.");
+            }
+            if (!WallConstructionHandler.ApplyPatches(harmony))
+            {
+                WallConstructionHandler.Enabled = false;
+                Log.LogError("Wall construction disabled: native commit observation is unavailable.");
+            }
 
             bool focusOk = FocusHandler.ApplyPatches(harmony);
             if (!CreatorUiDiagnostics.ApplyPatches(harmony))
@@ -286,7 +384,14 @@ namespace ParalivesAccess
             OccupationHandler.Enabled = false;
             BuildCatalogHandler.Enabled = false;
             ItemPlacementHandler.Enabled = false;
+            WallConstructionHandler.Enabled = false;
             LotObjectHandler.Enabled = false;
+            FloorCoveringHandler.Enabled = false;
+            WallItemPlacementHandler.Enabled = false;
+            SlotPlacementHandler.Enabled = false;
+            ExistingItemEditHandler.Enabled = false;
+            CoordinateEntryHandler.Enabled = false;
+            PlacementActionsHandler.Enabled = false;
             Log.LogError($"Tutorial/occupation/lot/build/item handlers disabled because {reason}.");
         }
 
@@ -296,9 +401,14 @@ namespace ParalivesAccess
         /// </summary>
         private static void BeforeGameSystems()
         {
+            // BepInEx Awake can run inside InputSystem initialization on Unity 6.
+            // Subscribe from the game driver, after the native input manager exists.
+            ContextDeliveryProbe.Install();
+            ContextKeyInput.Install();
             ContextDeliveryProbe.BeforeGameSystems();
             InputTrace.BeforeGameSystems();
             ContextKeyInput.BeforeGameSystems();
+            RoomLabelHandler.Tick();
             AnnouncementCoordinator.BeforeGameSystems();
             VirtualAudioListenerHandler.BeforeGameSystems();
             SettingsHandler.Tick();
@@ -312,9 +422,15 @@ namespace ParalivesAccess
             OccupationHandler.BeforeGameSystems();
             MenuNavigationHandler.BeforeGameSystems();
             TutorialHandler.BeforeGameSystems();
+            CameraPitchHandler.BeforeGameSystems();
+            LotCursorHandler.BeforeGameSystems();
             BuildCatalogHandler.BeforeGameSystems();
             LotObjectHandler.BeforeGameSystems();
+            CoordinateEntryHandler.Tick();
+            PlacementActionsHandler.Tick();
             ItemPlacementHandler.BeforeGameSystems();
+            WallConstructionHandler.BeforeGameSystems();
+            FloorCoveringHandler.BeforeGameSystems();
         }
 
         private static bool HasPatch(IEnumerable<Patch> patches, MethodInfo method)
@@ -360,7 +476,11 @@ namespace ParalivesAccess
 
             // Captures a preview only after CreateItemForPlacementEvent has run, and verifies the
             // transaction only after EndMoveItem has updated the lot list and balance.
+            NativePlacementAttempt.AfterGameSystems();
             ItemPlacementHandler.AfterGameSystems();
+            RoomFitSearch.Tick();
+            LinkedGroupRecovery.Tick();
+            WallConstructionHandler.AfterGameSystems();
             ParaSwitchHandler.Tick();
 
             // The close listener is prepared before audio systems for gate/mix evaluation, then
@@ -377,7 +497,9 @@ namespace ParalivesAccess
             ContextActionHandler.Tick();
             TutorialHandler.Tick();
             BuildCatalogHandler.Tick();
+            FloorCoveringHandler.Tick();
             LotObjectHandler.Tick();
+            RoomTravelHandler.Tick();
 
             // Supplies keyboard navigation where the game provides none. Runs before the probe so
             // the probe observes the resulting state. It still runs under exclusive ownership so
@@ -389,7 +511,9 @@ namespace ParalivesAccess
             // F7 before pressing F3 otherwise made a just-missed tutorial instruction impossible
             // to recover. The handler only observes state and reacts to F3, so it does not contend
             // with the owning browser's controls.
+            BuildCameraHandler.Tick();
             WindowHandler.Tick();
+            LotDescriptionHandler.Tick();
 
             // The selected Para's running and queued activities follow the main F3 context
             // sentence. This observer also gives one quiet snapshot after loading or selection;
@@ -451,6 +575,9 @@ namespace ParalivesAccess
                 // only logs when the open category path changes, and at most MaxDumps times per session.
                 CharacterCreatorContentProbe.Tick();
             }
+
+            // Global clock reads follow foreground panel speech and preserve every input owner.
+            TimeDateHandler.Tick();
 
             // This is deliberately the final recurring speech handler. Important world-state
             // events wait for physical input to settle and then queue behind every foreground

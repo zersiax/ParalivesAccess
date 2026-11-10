@@ -7,26 +7,38 @@ using UnityEngine.InputSystem.LowLevel;
 
 namespace ParalivesAccess.Handlers
 {
-    /// <summary>Retains F3 down events, including taps released before the game samples the keyboard.</summary>
+    /// <summary>Retains context and time/date taps released before the game samples the keyboard.</summary>
     internal static class ContextKeyInput
     {
         private static readonly Dictionary<int, bool> DownByDevice = new Dictionary<int, bool>();
+        private static readonly Dictionary<int, bool> TimeDateDownByDevice = new Dictionary<int, bool>();
         private static bool _installed;
+        private static bool _installationAttempted;
         private static bool _pendingContext;
         private static bool _pendingRepeat;
+        private static bool _pendingTimeDate;
         private static int _sampleFrame = -1;
 
         internal static bool ContextPressed { get; private set; }
         internal static bool RepeatPressed { get; private set; }
+        internal static bool TimeDatePressed { get; private set; }
+
+        internal static bool TakeTimeDateRequest()
+        {
+            bool requested = TimeDatePressed;
+            TimeDatePressed = false;
+            return requested;
+        }
 
         internal static void Install()
         {
-            if (_installed) return;
+            if (_installed || _installationAttempted || Keyboard.current == null) return;
+            _installationAttempted = true;
             try
             {
                 InputSystem.onEvent += OnInputEvent;
                 _installed = true;
-                Plugin.Log.LogInfo("[ContextInput] F3 keyboard-event capture installed.");
+                Plugin.Log.LogInfo("[ContextInput] Context and time/date keyboard-event capture installed.");
             }
             catch (Exception ex)
             {
@@ -40,6 +52,7 @@ namespace ParalivesAccess.Handlers
                 || (!inputEvent.IsA<StateEvent>() && !inputEvent.IsA<DeltaStateEvent>())) return;
             try
             {
+                CaptureTimeDate(keyboard, inputEvent);
                 float value;
                 if (!keyboard.f3Key.ReadValueFromEvent(inputEvent, out value)) return;
                 bool down = keyboard.f3Key.IsValueConsideredPressed(value);
@@ -60,8 +73,27 @@ namespace ParalivesAccess.Handlers
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogError("Capturing F3 keyboard event threw: " + ex);
+                Plugin.Log.LogError("Capturing global keyboard event threw: " + ex);
             }
+        }
+
+        private static void CaptureTimeDate(Keyboard keyboard, InputEventPtr inputEvent)
+        {
+            if (TimeDateHandler.ReadKey == Key.None) return;
+            var key = keyboard[TimeDateHandler.ReadKey];
+            float value;
+            if (!key.ReadValueFromEvent(inputEvent, out value)) return;
+            bool down = key.IsValueConsideredPressed(value);
+            if (!TimeDateDownByDevice.TryGetValue(keyboard.deviceId, out bool previous))
+                previous = key.isPressed;
+            TimeDateDownByDevice[keyboard.deviceId] = down;
+            if (!down || previous || inputEvent.handled || !Application.isFocused
+                || SettingsHandler.IsCapturingBindingInput
+                || ReadPressed(keyboard.leftShiftKey, inputEvent) || ReadPressed(keyboard.rightShiftKey, inputEvent)
+                || ReadPressed(keyboard.leftCtrlKey, inputEvent) || ReadPressed(keyboard.rightCtrlKey, inputEvent)
+                || ReadPressed(keyboard.leftAltKey, inputEvent) || ReadPressed(keyboard.rightAltKey, inputEvent)
+                || ReadPressed(keyboard.leftMetaKey, inputEvent) || ReadPressed(keyboard.rightMetaKey, inputEvent)) return;
+            _pendingTimeDate = true;
         }
 
         private static bool ReadPressed(ButtonControl key, InputEventPtr inputEvent)
@@ -78,12 +110,15 @@ namespace ParalivesAccess.Handlers
             _sampleFrame = Time.frameCount;
             ContextPressed = _pendingContext;
             RepeatPressed = _pendingRepeat;
+            TimeDatePressed = _pendingTimeDate;
             _pendingContext = false;
             _pendingRepeat = false;
+            _pendingTimeDate = false;
             if (!Application.isFocused || SettingsHandler.IsCapturingBindingInput)
             {
                 ContextPressed = false;
                 RepeatPressed = false;
+                TimeDatePressed = false;
             }
         }
     }

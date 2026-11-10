@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using ParalivesAccess.Speech;
 using Setting;
 using UnityEngine;
@@ -17,8 +18,13 @@ namespace ParalivesAccess.Handlers
     /// No operation in this handler moves a Para; the selected Para is consulted only when the
     /// native interaction system needs an actor.
     /// </remarks>
-    public static class LotObjectHandler
+    public static partial class LotObjectHandler
     {
+        internal static bool TryGetContext(out string report)
+        {
+            report = _panel == null ? null : _panel.Name + ". " + _panel.Current?.Describe();
+            return report != null;
+        }
         private const int DirectListThreshold = 24;
 
         /// <summary>Set false to disable the current-lot explorer.</summary>
@@ -84,6 +90,10 @@ namespace ParalivesAccess.Handlers
                     return;
                 }
 
+                // Our native text form temporarily owns Enter/Escape. Retain the room page,
+                // including through key release, so editing a name cannot activate its next row.
+                if (CoordinateEntryHandler.BlocksPlacement) return;
+
                 if (hybridPlayer.HasInputFieldFocused)
                 {
                     if (_panel != null)
@@ -93,6 +103,7 @@ namespace ParalivesAccess.Handlers
                     return;
                 }
 
+                if (HandleQuickNavigation(hybridPlayer, keyboard)) return;
                 if (ModInputKey.WasPressed(keyboard, OpenKey))
                 {
                     if (_panel != null)
@@ -127,6 +138,7 @@ namespace ParalivesAccess.Handlers
                     Close(announce: true);
                     return;
                 }
+                if (HandleBuildShortcut(hybridPlayer, keyboard)) return;
 
                 // An object or Para command page is meaningful only while that exact live target
                 // remains in the explorer model. Its individual entries all becoming unavailable
@@ -178,17 +190,43 @@ namespace ParalivesAccess.Handlers
             }
         }
 
-        private static void Open(HybridPlayer hybridPlayer)
+        private static bool HandleBuildShortcut(HybridPlayer hybridPlayer, Keyboard keyboard)
+        {
+            if (ModInputKey.WasPressed(keyboard, BuildCatalogHandler.OpenKey))
+            {
+                if (!ModInputKey.IsAvailable(hybridPlayer, BuildCatalogHandler.OpenKey, out string conflict)) Speak(conflict);
+                else if (!BuildCatalogHandler.Enabled || hybridPlayer.Player.State != GameStates.BuildMode)
+                    Speak(Loc.Get("catalog_unavailable"));
+                else if (UI.GetOrNull<UIBuildModeCatalog>(hybridPlayer.Player.PlayerIndex)?.IsVisible != true)
+                    Speak(Loc.Get(hybridPlayer.IsInTownMap() ? "catalog_town_map" : "catalog_unavailable"));
+                else
+                {
+                    Close(announce: false);
+                    BuildCatalogHandler.Open(hybridPlayer);
+                }
+                return true;
+            }
+            if (hybridPlayer.Player.State == GameStates.BuildMode && ModInputKey.WasPressed(keyboard, Key.F11))
+            {
+                Speak(ModInputKey.IsAvailable(hybridPlayer, Key.F11, out string conflict)
+                    ? BuildCameraHandler.DescribeCamera(hybridPlayer, true) : conflict);
+                return true;
+            }
+            return false;
+        }
+
+        private static void Open(HybridPlayer hybridPlayer, bool rooms = false, bool paras = false)
         {
             string conflict;
-            if (!ModInputKey.IsAvailable(hybridPlayer, OpenKey, out conflict))
+            if (!ModInputKey.IsAvailable(hybridPlayer, paras ? ParaListKey : OpenKey, out conflict))
             {
                 Speak(conflict);
                 return;
             }
 
             Player player = hybridPlayer.Player;
-            if (player.State != GameStates.LiveMode)
+            if (paras && player.State != GameStates.LiveMode) { Speak(Loc.Get("quick_paras_live")); return; }
+            if (player.State != GameStates.LiveMode && player.State != GameStates.BuildMode)
             {
                 Speak(Loc.Get("explorer_live_required"));
                 return;
@@ -208,7 +246,7 @@ namespace ParalivesAccess.Handlers
             AssetLot lot = GetLoadedLot(lotGuid);
             if (lotGuid == 0UL || lot == null)
             {
-                if (TransitStopReader.GetStops(player).Count == 0)
+                if (player.State == GameStates.BuildMode || TransitStopReader.GetStops(player).Count == 0)
                 {
                     Speak(Loc.Get("explorer_lot_required"));
                     return;
@@ -225,6 +263,7 @@ namespace ParalivesAccess.Handlers
                 return;
             }
 
+            if (_panel != null) Close(announce: false);
             CaptureCameraBaseline(hybridPlayer);
             _lotGuid = lotGuid;
             _lotSource = source;
@@ -248,11 +287,32 @@ namespace ParalivesAccess.Handlers
               + $"introVisualFallback={model.IntroVisualParaCount}, "
               + $"travelDestinationFallback={model.TravelDestinationParaCount}, "
               + $"cameraLayer={player.GetLotLayer(lotGuid)}.");
-            ShowRoot(player);
+            _directParas = paras;
+            if (rooms) OpenRoomFinder(false);
+            else if (paras) OpenParaFinder(false);
+            else ShowRoot(player);
         }
 
         private static void ShowRoot(Player player, bool preferViewToggle = false)
         {
+            if (player.State == GameStates.BuildMode)
+            {
+                var build = NewPanel(Loc.Get("explorer_build_panel"));
+                build.Add(RoomFinderCommand());
+                build.Add(new CommandEntry(() => true, () => Loc.Get("camera_pitch_toggle"),
+                    () => Speak(CameraPitchHandler.Toggle(PlayerManager.Instance.HybridPlayer1))));
+                build.Add(new CommandEntry(() => HouseholdManager.Instance.OwnsLot(_lotGuid),
+                    () => Loc.Get("recovery_open"), OpenBuriedItems));
+                build.Add(new CommandEntry(() => HouseholdManager.Instance.OwnsLot(_lotGuid),
+                    () => Loc.Get("recovery_inventory_open"), OpenSavedInventory));
+                foreach (var floor in _model.Floors) build.Add(new FloorEntry(floor));
+                build.Add(new FinderEntry(FindMode.All));
+                build.Add(new CommandEntry(() => true, () => Loc.Get("structure_walls"), () => OpenStructureWalls(null)));
+                build.Add(new CommandEntry(() => true, () => Loc.Get("structure_floors"), () => OpenStructureFloors(null)));
+                build.Add(new CommandEntry(() => true, () => Loc.Get("room_grid_use_lot"), () => { RoomPlacementGrid.UseLot(); Speak(Loc.Get("room_grid_lot")); }));
+                SetPanel(build, null, pushCurrent: false);
+                return;
+            }
             if (_lotGuid == 0UL)
             {
                 var transit = NewPanel(Loc.Get("transit_town"));
@@ -261,6 +321,9 @@ namespace ParalivesAccess.Handlers
                 return;
             }
             var panel = NewPanel(Loc.Get("explorer_panel"));
+            panel.Add(RoomFinderCommand());
+            panel.Add(new CommandEntry(() => _model != null && _model.RoomCount > 0,
+                () => Loc.Get("room_travel_open"), () => OpenRoomFinder(true, true)));
             VirtualPanel.IEntry preferred = null;
             int currentLayer = player.GetLotLayer(_lotGuid);
             var paraFinder = new ParaFinderEntry();
@@ -433,22 +496,188 @@ namespace ParalivesAccess.Handlers
             }
             paras.Sort(CompareParasFromCamera);
 
-            if (objects.Count == 0 && paras.Count == 0)
+            if (objects.Count == 0 && paras.Count == 0 && area.Room == null)
             {
-                Speak(area.Describe(UseActionOnlyView));
+                Speak(player.State == GameStates.BuildMode ? Loc.Get("build_empty_area") : area.Describe(UseActionOnlyView));
                 return;
             }
 
             var panel = NewPanel(areaName);
+            panel.NameReader = area.GetName;
+            if (area.Room != null)
+            {
+                if (player.State == GameStates.LiveMode)
+                    panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("room_travel_here"), () => {
+                        var room = area.Room; Close(false); RoomTravelHandler.Start(room);
+                    }));
+                panel.Add(new CommandEntry(() => RoomLabelHandler.IsCurrent(area.Room),
+                    () => Loc.Get(RoomLabelHandler.CustomName(area.Room) == null ? "room_label_name" : "room_label_rename"),
+                    () => RoomLabelHandler.Open(area.Room)));
+                panel.Add(new CommandEntry(() => RoomLabelHandler.CustomName(area.Room) != null,
+                    () => Loc.Get("room_label_clear"), () => RoomLabelHandler.Clear(area.Room)));
+                panel.Add(new CommandEntry(() => RoomLabelHandler.CustomName(area.Room) == null && RoomLabelHandler.Unassigned(area.Room).Count > 0,
+                    () => Loc.Get("room_label_reassign"), () => OpenUnassignedRoomNames(area)));
+                panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("room_choose_front"), () => OpenRoomReference(area)));
+                panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("room_describe"), () => Speak(RoomSpatialReader.Describe(area.Room))));
+                if (player.State == GameStates.BuildMode)
+                {
+                    panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("extension_open"), () => OpenRoomExtension(area.Room)));
+                    panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("room_grid_use"), () => Speak(RoomPlacementGrid.Select(area.Room))));
+                    panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("structure_walls"), () => OpenStructureWalls(area.Room)));
+                    panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("structure_floors"), () => OpenStructureFloors(area.Room)));
+                }
+            }
             foreach (ObjectModel item in objects)
             {
                 panel.Add(new ObjectEntry(item));
             }
             foreach (ParaModel para in paras)
             {
-                panel.Add(new ParaEntry(para));
+                if (player.State == GameStates.LiveMode) panel.Add(new ParaEntry(para));
             }
             SetPanel(panel, null, pushCurrent: true);
+        }
+
+        private static void OpenUnassignedRoomNames(AreaModel area)
+        {
+            var panel = NewPanel(Loc.Get("room_label_retained"));
+            foreach (var label in RoomLabelHandler.Unassigned(area.Room))
+            {
+                string key = label.Key;
+                panel.Add(new CommandEntry(() => RoomLabelHandler.IsCurrent(area.Room) && RoomLabelHandler.CustomName(area.Room) == null
+                    && RoomLabelHandler.Unassigned(area.Room).Any(l => l.Key == key),
+                    () => label.Text, () => RoomLabelHandler.Reassign(area.Room, key)));
+            }
+            SetPanel(panel, null, pushCurrent: true, contextAvailable: () => RoomLabelHandler.IsCurrent(area.Room)
+                && RoomLabelHandler.CustomName(area.Room) == null && RoomLabelHandler.Unassigned(area.Room).Count > 0);
+        }
+
+        private static void OpenStructureWalls(ZoneWallObject room)
+        {
+            var player = GetPlayer(); int layer = player.GetLotLayer(_lotGuid);
+            if (!StructureEditingHandler.Context(player, _lotGuid, layer)) { Speak(Loc.Get("structure_unavailable")); return; }
+            var walls = StructureEditingHandler.Walls(_lotGuid, layer, room);
+            if (walls.Count == 0) { Speak(Loc.Get("structure_no_walls")); return; }
+            var panel = NewPanel(Loc.Get("structure_walls"));
+            for (int i = 0; i < walls.Count; i++)
+            {
+                var wall = walls[i]; int ordinal = i + 1, id = wall.InstanceID;
+                panel.Add(new CommandEntry(() => wall != null && wall.InstanceID == id,
+                    () => StructureEditingHandler.DescribeWall(wall, ordinal), () => OpenStructureWall(wall, id, ordinal)));
+            }
+            SetPanel(panel, null, pushCurrent: true);
+        }
+
+        private static void OpenStructureWall(SegmentWallObject wall, int id, int ordinal)
+        {
+            if (wall == null || wall.InstanceID != id) { Speak(Loc.Get("structure_changed")); return; }
+            var panel = NewPanel(StructureEditingHandler.DescribeWall(wall, ordinal));
+            panel.Add(new CommandEntry(() => wall != null && wall.InstanceID == id, () => Loc.Get("structure_delete_wall"),
+                () => OpenStructureReview(StructureEditingHandler.WallReview(GetPlayer(), wall, -1, false, ordinal))));
+            panel.Add(new CommandEntry(() => wall != null && wall.InstanceID == id, () => Loc.Get("extension_open"), () => OpenExtensionFromWall(wall)));
+            for (int i = 0; i < wall.WallSections.Count; i++)
+            {
+                int index = i; var section = wall.WallSections[i]; int sectionId = section.InstanceID;
+                panel.Add(new CommandEntry(() => section != null && section.InstanceID == sectionId && wall.WallSections.Contains(section),
+                    () => Loc.Get(section.DisabledByUser ? "structure_restore_section" : "structure_hide_section", index + 1),
+                    () => OpenStructureReview(wall.WallSections.IndexOf(section) == index
+                        ? StructureEditingHandler.WallReview(GetPlayer(), wall, index, section.DisabledByUser, ordinal) : null)));
+            }
+            SetPanel(panel, null, pushCurrent: true, contextAvailable: () => wall != null && wall.InstanceID == id);
+        }
+
+        private static void OpenStructureFloors(ZoneWallObject room)
+        {
+            var player = GetPlayer(); int layer = player.GetLotLayer(_lotGuid);
+            if (!StructureEditingHandler.Context(player, _lotGuid, layer)) { Speak(Loc.Get("structure_unavailable")); return; }
+            var floors = StructureEditingHandler.Floors(_lotGuid, layer, room);
+            if (floors.Count == 0) { Speak(Loc.Get("structure_no_floors")); return; }
+            var panel = NewPanel(Loc.Get("structure_floors"));
+            for (int i = 0; i < floors.Count; i++)
+            {
+                var floor = floors[i]; int ordinal = i + 1, id = floor.InstanceID;
+                panel.Add(new CommandEntry(() => floor != null && floor.InstanceID == id,
+                    () => StructureEditingHandler.DescribeFloor(floor, ordinal), () => OpenStructureFloor(floor, id, ordinal)));
+            }
+            SetPanel(panel, null, pushCurrent: true);
+        }
+
+        private static void OpenRoomExtension(ZoneWallObject room)
+        {
+            if (room == null || !StructureEditingHandler.Context(GetPlayer(), room.LotPlacedOnGUID, room.Layer))
+            { Speak(Loc.Get("structure_unavailable")); return; }
+            var targets = RoomExtensionReader.Read(room);
+            if (targets.Count == 0) { Speak(Loc.Get("extension_no_sides")); return; }
+            var panel = NewPanel(Loc.Get("extension_choose_wall"));
+            foreach (var target in targets)
+            {
+                var captured = target;
+                panel.Add(new CommandEntry(() => true, () => captured.Name(), () => BeginRoomExtension(captured)));
+            }
+            SetPanel(panel, null, pushCurrent: true, contextAvailable: () => room != null && room.gameObject.activeInHierarchy);
+        }
+
+        private static void OpenExtensionFromWall(SegmentWallObject wall)
+        {
+            if (wall == null || !StructureEditingHandler.Context(GetPlayer(), wall.LotPlacedOnGUID, wall.Layer))
+            { Speak(Loc.Get("structure_unavailable")); return; }
+            var targets = RoomSpatialReader.OrderedRooms(wall.LotPlacedOnGUID, wall.Layer)
+                .SelectMany(RoomExtensionReader.Read).Where(t => t.Walls.Contains(wall)).ToList();
+            if (targets.Count == 0) { Speak(Loc.Get("extension_no_sides")); return; }
+            if (targets.Count == 1) { BeginRoomExtension(targets[0]); return; }
+            // A wall between two existing rooms has no free side. Preserve that relationship in
+            // the response instead of choosing a side from the camera position.
+            Speak(Loc.Get("extension_room_blocked"));
+        }
+
+        private static void BeginRoomExtension(RoomExtensionTarget target)
+        {
+            if (!target.IsLive || !StructureEditingHandler.Context(GetPlayer(), target.Lot, target.Layer))
+            { Speak(Loc.Get("extension_changed")); return; }
+            if (target.OppositeRoom() != null) { Speak(Loc.Get("extension_room_blocked")); return; }
+            var hybrid = PlayerManager.Instance.HybridPlayer1;
+            Close(false);
+            RoomExtensionReader.OpenDepth(hybrid, target);
+        }
+
+        private static void OpenStructureFloor(ZoneWallPlatformObject floor, int id, int ordinal)
+        {
+            if (floor == null || floor.InstanceID != id) { Speak(Loc.Get("structure_changed")); return; }
+            var panel = NewPanel(StructureEditingHandler.DescribeFloor(floor, ordinal));
+            Func<bool> live = () => floor != null && floor.InstanceID == id;
+            panel.Add(new CommandEntry(live, () => Loc.Get("structure_floor_raise"), () => OpenStructureReview(StructureEditingHandler.FloorReview(GetPlayer(), floor, 1, false, ordinal))));
+            panel.Add(new CommandEntry(live, () => Loc.Get("structure_floor_lower"), () => OpenStructureReview(StructureEditingHandler.FloorReview(GetPlayer(), floor, -1, false, ordinal))));
+            panel.Add(new CommandEntry(live, () => Loc.Get("structure_floor_add"), () => OpenStructureReview(StructureEditingHandler.FloorReview(GetPlayer(), floor, 1, true, ordinal))));
+            panel.Add(new CommandEntry(live, () => Loc.Get("structure_floor_remove"), () => OpenStructureReview(StructureEditingHandler.RemoveFloorReview(GetPlayer(), floor, ordinal))));
+            if (floor.Height == 0 && floor.DisabledByUser)
+                panel.Add(new CommandEntry(live, () => Loc.Get("structure_floor_restore"), () => OpenStructureReview(StructureEditingHandler.RestoreFloorReview(GetPlayer(), floor, ordinal))));
+            panel.Add(new CommandEntry(live, () => Loc.Get("structure_floor_boundary"), () => Speak(StructureEditingHandler.Boundary(floor.WallZone))));
+            SetPanel(panel, null, pushCurrent: true, contextAvailable: live);
+        }
+
+        private static void OpenStructureReview(StructureEditingHandler.Review review)
+        {
+            if (review == null) { Speak(Loc.Get("structure_unavailable")); return; }
+            var panel = NewPanel(review.Description);
+            panel.Add(new CommandEntry(() => true, () => Loc.Get("structure_confirm"), () => { Close(false); Speak(review.Apply()); }));
+            panel.Add(new CommandEntry(() => true, () => Loc.Get("structure_cancel"), GoBack));
+            SetPanel(panel, null, pushCurrent: true);
+        }
+
+        private static void OpenRoomReference(AreaModel area)
+        {
+            var faces = RoomSpatialReader.Faces(area.Room);
+            if (faces.Count == 0) { Speak(Loc.Get("room_no_faces")); return; }
+            var panel = NewPanel(Loc.Get("room_choose_front"));
+            for (int i = 0; i < faces.Count; i++)
+            {
+                var face = faces[i]; int ordinal = i + 1;
+                panel.Add(new CommandEntry(() => area.IsAvailable,
+                    () => RoomSpatialReader.DescribeFace(face, ordinal),
+                    () => { Speak(RoomSpatialReader.SetReference(area.Room, face)); }));
+            }
+            panel.Add(new CommandEntry(() => area.IsAvailable, () => Loc.Get("room_describe"), () => Speak(RoomSpatialReader.Describe(area.Room))));
+            SetPanel(panel, null, pushCurrent: true, contextAvailable: () => area.IsAvailable);
         }
 
         private static List<ObjectModel> GetAttentionObjects()
@@ -660,7 +889,7 @@ namespace ParalivesAccess.Handlers
             SetPanel(panel, preferred, pushCurrent);
         }
 
-        private static void OpenParaFinder()
+        private static void OpenParaFinder(bool pushCurrent = true)
         {
             var paras = new List<ParaModel>();
             foreach (ParaModel para in _model.Paras)
@@ -674,6 +903,7 @@ namespace ParalivesAccess.Handlers
             if (paras.Count == 0)
             {
                 Speak(Loc.Get("explorer_no_paras"));
+                if (!pushCurrent) Close(announce: false);
                 return;
             }
 
@@ -689,7 +919,7 @@ namespace ParalivesAccess.Handlers
                     preferred = entry;
                 }
             }
-            SetPanel(panel, preferred, pushCurrent: true);
+            SetPanel(panel, preferred, pushCurrent: pushCurrent);
         }
 
         private static void OpenTutorialConductorFinder()
@@ -1575,6 +1805,32 @@ namespace ParalivesAccess.Handlers
             }
 
             var panel = NewPanel(Loc.Get("explorer_object_commands", name));
+            if (player.State == GameStates.BuildMode)
+            {
+                panel.Add(new CommandEntry(() => item.IsAvailable,
+                    () => Loc.Get("edit_command"), () =>
+                    {
+                        var target = item.Resolve(); var hybrid = PlayerManager.Instance.HybridPlayer1;
+                        if (!ExistingItemEditHandler.CanBegin(hybrid, target)) { Speak(Loc.Get("edit_unavailable")); return; }
+                        Close(announce: false);
+                        ExistingItemEditHandler.Begin(hybrid, target);
+                    }));
+                panel.Add(new CommandEntry(() => item.IsAvailable, () => Loc.Get("footprint_command"),
+                    () => Speak(ItemFootprintReader.Describe(item.Resolve()))));
+                if (RoofConstructionHandler.CanSize(root))
+                {
+                    panel.Add(new CommandEntry(() => item.IsAvailable, () => Loc.Get("roof_dimensions"), () =>
+                    {
+                        var target = item.Resolve(); var hybrid = PlayerManager.Instance.HybridPlayer1;
+                        Close(announce: false); RoofConstructionHandler.OpenDimensions(hybrid, target);
+                    }));
+                    panel.Add(new CommandEntry(() => item.IsAvailable, () => Loc.Get("roof_review"),
+                        () => Speak(RoofConstructionHandler.Describe(item.Resolve()))));
+                }
+                panel.Add(new CommandEntry(() => item.IsAvailable, () => Loc.Get("explorer_frame_object"), () => FrameObject(item, name)));
+                SetPanel(panel, null, pushCurrent: true, contextAvailable: () => item.IsAvailable);
+                return;
+            }
             Storyteller storyteller = GetPlayer()?.IsInSelectStoryteller == true
                 ? FindStoryteller(root)
                 : null;
@@ -2203,7 +2459,7 @@ namespace ParalivesAccess.Handlers
             }
         }
 
-        private static ulong ResolveCurrentLot(Player player, out string source)
+        internal static ulong ResolveCurrentLot(Player player, out string source)
         {
             source = "none";
             LotManager lots = LotManager.Instance;
@@ -2379,7 +2635,7 @@ namespace ParalivesAccess.Handlers
         {
             Player player = hybridPlayer?.Player;
             return player != null
-                && player.State == GameStates.LiveMode
+                && (player.State == GameStates.LiveMode || player.State == GameStates.BuildMode)
                 && player.ItemInPlacement == null
                 && !player.PlayerActionBlockedByUIWindow
                 && !IsTownMapBlockingExplorer(hybridPlayer)
@@ -2390,8 +2646,12 @@ namespace ParalivesAccess.Handlers
         private static bool IsTownMapBlockingExplorer(HybridPlayer hybridPlayer)
         {
             Player player = hybridPlayer?.Player;
+            // Town-map zoom and BuildMode can be active together. F7 can still explore the
+            // loaded build lot; selecting a room/outdoors uses the existing native camera framing.
+            // Retain the live-mode map gate and the fast-travel destination selection gate.
             return hybridPlayer != null && hybridPlayer.IsInTownMap()
-                && player?.IsInSelectHouseholdTutorial != true;
+                && player?.IsInSelectHouseholdTutorial != true
+                && (player?.State != GameStates.BuildMode || player.TownMapForFastTravelMethod != 0);
         }
 
         private static AssetCharacter GetSelectedCharacter(Player player)
@@ -2616,6 +2876,7 @@ namespace ParalivesAccess.Handlers
             _isForeignLot = false;
             _showAllForeignLotObjects = false;
             _enterPressed = false;
+            _directParas = false;
             RestoreCamera();
             if (announce)
             {
@@ -3100,7 +3361,9 @@ namespace ParalivesAccess.Handlers
 
             public string Describe()
             {
-                return IsAvailable ? _choice.Describe() : null;
+                if (!IsAvailable) return null;
+                return _choice.Describe() + (CanChangeParaSelection(_choice.ResolveCharacter())
+                    ? ". " + Loc.Get("explorer_para_selection_hint") : "");
             }
 
             public void Activate()
@@ -3537,6 +3800,7 @@ namespace ParalivesAccess.Handlers
                     AddPart(parts, Loc.Get("explorer_tutorial_target", tutorialDescription));
                 }
                 parts.Add(_item.GetDisplayName());
+                AddPart(parts, PlacementLocationReader.Target(root));
                 AddPart(parts, ItemAttentionReader.Describe(root));
                 string functions = LotReadinessReader.DescribeFacilityKinds(_item.Facilities);
                 if (!string.IsNullOrEmpty(functions))
@@ -3642,6 +3906,7 @@ namespace ParalivesAccess.Handlers
                         : Loc.Get("explorer_not_selected");
                     parts.Add(Loc.Get("explorer_para_selection_state", selectionState));
                 }
+                if (CanChangeParaSelection(character)) parts.Add(Loc.Get("explorer_para_selection_hint"));
                 if (GetPlayer()?.IsInSelectHouseholdTutorial == true
                     && GetVisualBackedHouseholdChoice(character) != null)
                 {
@@ -4381,7 +4646,7 @@ namespace ParalivesAccess.Handlers
                     }
                     try
                     {
-                        if (MathService.ZoneObjectContainsPoint(area.Room, position)
+                        if (ZoneGeometry.Contains(area.Room, position)
                             && (best == null
                                 || area.Room.SurfaceArea < best.Room.SurfaceArea))
                         {
@@ -4492,7 +4757,7 @@ namespace ParalivesAccess.Handlers
                 {
                     try
                     {
-                        return MathService.ZoneObjectContainsPoint(
+                        return ZoneGeometry.Contains(
                             _perimeter, character.Data.Position);
                     }
                     catch (Exception ex)
@@ -4666,12 +4931,7 @@ namespace ParalivesAccess.Handlers
 
             private static bool IsUsableRoom(ZoneWallObject room, ulong lotGuid)
             {
-                return room != null && room.gameObject != null
-                    && room.gameObject.activeInHierarchy && !room.IsGlobal
-                    && room.LotPlacedOnGUID == lotGuid && room.Segments != null
-                    && room.Segments.Count >= 2
-                    && !float.IsNaN(room.AveragePosition.x)
-                    && !float.IsInfinity(room.AveragePosition.x);
+                return RoomSpatialReader.IsUsableRoom(room, lotGuid);
             }
 
             private static bool IsUsablePara(AssetCharacter character)
@@ -4769,16 +5029,7 @@ namespace ParalivesAccess.Handlers
                         rooms.Add(area);
                     }
                 }
-                rooms.Sort((a, b) =>
-                {
-                    int x = a.Room.AveragePosition.x.CompareTo(b.Room.AveragePosition.x);
-                    if (x != 0)
-                    {
-                        return x;
-                    }
-                    int z = a.Room.AveragePosition.z.CompareTo(b.Room.AveragePosition.z);
-                    return z != 0 ? z : a.Room.InstanceID.CompareTo(b.Room.InstanceID);
-                });
+                rooms.Sort((a, b) => RoomSpatialReader.CompareRooms(a.Room, b.Room));
                 for (int i = 0; i < rooms.Count; i++)
                 {
                     rooms[i].RoomOrdinal = i + 1;
@@ -4815,7 +5066,7 @@ namespace ParalivesAccess.Handlers
             {
                 return Room == null
                     ? Loc.Get("explorer_outdoors")
-                    : Loc.Get("explorer_unnamed_room", RoomOrdinal, RoomCount);
+                    : RoomLabelHandler.Name(Room, RoomOrdinal, RoomCount);
             }
 
             internal Vector3 GetAnchor()
@@ -4918,9 +5169,10 @@ namespace ParalivesAccess.Handlers
                     {
                         break;
                     }
-                    string usefulName = !string.IsNullOrEmpty(item.Category)
-                        ? item.Category
-                        : item.Name;
+                    // Broad catalogue categories such as Kids describe a shop filter, not the
+                    // room's contents. The product identity is useful even before facilities exist.
+                    string usefulName = !string.IsNullOrEmpty(item.Name) ? item.Name
+                        : !string.IsNullOrEmpty(item.Category) ? Loc.Get("explorer_object_category", item.Category) : null;
                     if (!string.IsNullOrEmpty(usefulName) && !names.Contains(usefulName))
                     {
                         names.Add(usefulName);
@@ -5033,7 +5285,7 @@ namespace ParalivesAccess.Handlers
                     : Name;
                 return string.IsNullOrEmpty(Category)
                     ? productName
-                    : Loc.Get("label_with_detail", productName, Category);
+                    : Loc.Get("label_with_detail", productName, Loc.Get("explorer_object_category", Category));
             }
 
             internal string GetPath()

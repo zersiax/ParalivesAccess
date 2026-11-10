@@ -45,13 +45,15 @@ namespace ParalivesAccess.Handlers
         private int _index;
 
         /// <summary>The panel's spoken name.</summary>
-        public string Name { get; }
+        public string Name => NameReader?.Invoke() ?? _name;
+        private readonly string _name;
+        internal Func<string> NameReader { get; set; }
 
         /// <summary>Creates an empty panel.</summary>
         /// <param name="name">The panel's spoken name.</param>
         public VirtualPanel(string name)
         {
-            Name = name;
+            _name = name;
         }
 
         /// <summary>Adds a control to the end of the panel.</summary>

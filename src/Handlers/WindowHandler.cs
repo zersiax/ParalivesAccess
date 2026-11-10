@@ -265,6 +265,7 @@ namespace ParalivesAccess.Handlers
         /// <summary>
         /// Harmony postfix on the private <c>UIFloatingText.Show</c>. Speaks transient on-screen text.
         /// </summary>
+        /// <param name="profileID">Native presentation profile, used to identify continuous preview labels.</param>
         /// <param name="text">The message, already localized by the caller.</param>
         /// <remarks>
         /// A THIRD announcement channel, distinct from window changes and from `UIPrompt`, and the
@@ -289,7 +290,7 @@ namespace ParalivesAccess.Handlers
         /// already-translated string, and reading the argument avoids depending on when the item's
         /// own label is populated.
         /// </remarks>
-        public static void FloatingTextPostfix(string text)
+        public static void FloatingTextPostfix(ulong profileID, string text)
         {
             if (!AnnounceWindows || string.IsNullOrEmpty(text))
             {
@@ -299,6 +300,7 @@ namespace ParalivesAccess.Handlers
             // Runs inside the game's call stack; an escaping exception would land in game code.
             try
             {
+                if (IsOwnedWallReadout(profileID)) return;
                 Plugin.Log.LogInfo("[Floating] " + text);
                 ScreenReader.Speak(text);
             }
@@ -306,6 +308,20 @@ namespace ParalivesAccess.Handlers
             {
                 Plugin.Log.LogError("WindowHandler.FloatingTextPostfix threw: " + ex);
             }
+        }
+
+        // The game's measuring/price/angle systems redraw these labels every frame. The wall
+        // controller reads settled length/price and exposes native angle markers on F11. Errors, actual
+        // money changes and unrelated floating feedback must keep their normal speech.
+        private static bool IsOwnedWallReadout(ulong profileID)
+        {
+            if (profileID == 0 || !WallConstructionHandler.OwnsInput) return false;
+            var profiles = Settings.Get<Setting.FloatingText>();
+            return profiles != null && profileID != profiles.ProfileError
+                && (profileID == profiles.ProfileMeasuringLine
+                    || profileID == profiles.ProfileMoneyLabelGreen
+                    || profileID == profiles.ProfileMoneyLabelRed
+                    || profileID == profiles.ProfileAngleWidgetText);
         }
 
         /// <summary>
@@ -511,7 +527,7 @@ namespace ParalivesAccess.Handlers
                 // moved (TEST 67 announced Pika/Gertrude over an Abi row), so it is neither useful
                 // nor authoritative while that browser owns input. Outside F6 it remains audible.
                 if (window is UITooltipBuildModeCatalogItem
-                    && BuildCatalogHandler.OwnsInput)
+                    && (BuildCatalogHandler.OwnsInput || ItemPlacementHandler.OwnsInput))
                 {
                     Plugin.Log.LogInfo(
                         "[Window] Build-catalogue tooltip is owned by the semantic F6 row; "
@@ -763,6 +779,15 @@ namespace ParalivesAccess.Handlers
         {
             if (window == null || !window.IsVisible)
             {
+                return null;
+            }
+
+            string formDescription = CoordinateEntryHandler.DescribeForm(window);
+            if (formDescription != null) return formDescription;
+            if (IsBuildHud(window))
+            {
+                // The catalogue can stay hidden at town-map zoom even though Tab has entered
+                // build mode. Announce the player's state once, independently of HUD visibility.
                 return null;
             }
 
@@ -1256,6 +1281,7 @@ namespace ParalivesAccess.Handlers
 
             try
             {
+                if (GameLoadingManager.State != State.Game) _buildSessionAnnounced = false;
                 if (IsSceneTransitionActive)
                 {
                     // Delivery rechecks visibility after loading, so only destination windows
@@ -1273,6 +1299,7 @@ namespace ParalivesAccess.Handlers
                     ? PlayerManager.Instance.HybridPlayer1
                     : null;
 
+                AnnounceBuildMode(hybridPlayer, contextRequested || importantEventRequested);
                 if (hybridPlayer != null)
                 {
                     AnnounceHudVisibility(hybridPlayer);
@@ -1382,6 +1409,22 @@ namespace ParalivesAccess.Handlers
         /// </remarks>
         private static string BuildContextReport(HybridPlayer hybridPlayer)
         {
+            string formDescription = CoordinateEntryHandler.DescribeForm(UI.GetOrNull<UIForm>(hybridPlayer.Player.PlayerIndex));
+            if (formDescription != null) return formDescription;
+            if (!hybridPlayer.HasInputFieldFocused && !hybridPlayer.Player.PlayerActionBlockedByUIWindow)
+            {
+                if (BuildCatalogHandler.TryGetContext(out string catalogReport)) return catalogReport;
+                if (LotObjectHandler.TryGetContext(out string lotReport)) return lotReport;
+            }
+            if (FloorCoveringHandler.TryGetContext(hybridPlayer, out string floorReport))
+                return floorReport;
+            if (WallConstructionHandler.TryGetContext(hybridPlayer, out string wallReport))
+                return wallReport;
+            if (ItemPlacementHandler.TryGetContext(hybridPlayer, out string placementReport))
+                return placementReport;
+            if (LotCursorHandler.TryGetContext(out string cursorReport)) return cursorReport;
+            if (BuildCameraHandler.TryGetContext(hybridPlayer, out string cameraReport))
+                return cameraReport;
             string contextualPanel;
             string contextualElement;
             bool isLot;
@@ -1479,6 +1522,50 @@ namespace ParalivesAccess.Handlers
             return string.IsNullOrEmpty(tutorial)
                 ? report
                 : Loc.Get("context_with_tutorial", report, tutorial);
+        }
+
+        private static bool _buildSessionAnnounced;
+
+        private static bool IsBuildMode(Player player)
+        {
+            return player != null && (player.State == GameStates.BuildMode
+                || player.IsInModeAllowingUIBuildModeModes());
+        }
+
+        /// <summary>Reports entry once, including when town-map zoom hides the native catalogue.</summary>
+        private static void AnnounceBuildMode(HybridPlayer hybridPlayer, bool contextRequested)
+        {
+            Player player = hybridPlayer?.Player;
+            if (GameLoadingManager.State != State.Game || !IsBuildMode(player))
+            {
+                _buildSessionAnnounced = false;
+                return;
+            }
+            if (_buildSessionAnnounced) return;
+            if (hybridPlayer.HasInputFieldFocused || player.PlayerActionBlockedByUIWindow
+                || SettingsHandler.IsCapturingBindingInput || !player.ShowUI)
+                return;
+
+            // Once a tool or explicit report has answered the user, do not deliver an old entry
+            // hint later when they close it. Native tool sub-modes remain the same build session.
+            _buildSessionAnnounced = true;
+            if (!AnnounceWindows || contextRequested || LotBuildInputOwnership.OwnsInput
+                || CoordinateEntryHandler.BlocksPlacement
+                || (TownMapLotHandler.Enabled && TownMapLotHandler.OwnsInput)
+                || player.ItemInPlacement != null || player.SegmentInPlacement != null)
+                return;
+
+            bool townMap = hybridPlayer.IsInTownMap();
+            string message = Loc.Get(townMap ? "build_mode_map_intro" : "build_mode_intro");
+            Plugin.Log.LogInfo($"[BuildMode] state={player.State}, townMap={townMap}. {message}");
+            ScreenReader.Speak(message);
+        }
+
+        private static bool IsBuildHud(UIWindow window)
+        {
+            return IsBuildMode(window.PlayerOwner?.Player)
+                && (window is UICharacters || window is UIKeyBindingTips || window is UIBuildModeCatalog
+                    || window is UIBuildModeModes);
         }
 
         /// <summary>Turns a window's type name into something speakable.</summary>

@@ -2963,18 +2963,22 @@ namespace ParalivesAccess.Handlers
         }
 
         /// <summary>
-        /// Reads an ordinary build-catalogue entry from its current typed data.
+        /// Reads a furniture or surface catalogue entry from its current native type and data.
         /// </summary>
         /// <remarks>
         /// Ordinary entries leave their plain tooltip untouched while the pooled slot is reused.
         /// The game's own visible-label path is ItemData + ItemSkin through GetSkinnedDisplayName;
         /// affordability is otherwise represented only by colour (game-api.md sections 25 and 37).
-        /// Non-item build tools return null and retain the existing type-specific/fallback paths.
+        /// InitSurface does not populate furniture fields, so the native type takes precedence.
+        /// Other build tools return null and retain the existing type-specific/fallback paths.
         /// </remarks>
         private static string GetBuildModeItemLabel(UIBuildModeItem item)
         {
             try
             {
+                var surface = CatalogEntryReader.SurfaceOf(item);
+                if (surface != null) return Loc.Get("catalog_surface", CatalogEntryReader.SurfaceName(surface.GUID));
+                if (!CatalogEntryReader.IsOrdinaryItem(item)) return null;
                 CatalogueItem data = item.ItemData;
                 if (data == null)
                 {

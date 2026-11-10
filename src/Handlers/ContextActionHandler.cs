@@ -206,6 +206,8 @@ namespace ParalivesAccess.Handlers
 
             if (OccupationHandler.OwnsInput
                 || BuildCatalogHandler.OwnsInput || ItemPlacementHandler.OwnsInput
+                || WallConstructionHandler.OwnsInput
+                || FloorCoveringHandler.OwnsInput
                 || LotObjectHandler.OwnsInput || NameEntryHandler.OwnsInput
                 || TownMapLotHandler.OwnsInput)
             {
