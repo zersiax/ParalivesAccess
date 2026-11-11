@@ -33,6 +33,33 @@ tested with Paralives Early Access 0.1.9b.20995, on Windows x64.
 
 ## 1. Install or update
 
+### Use the installer
+
+Download [ParalivesAccess-Installer.exe](https://github.com/zersiax/ParalivesAccess/releases/latest/download/ParalivesAccess-Installer.exe)
+and run it. The installer detects Paralives in your Steam libraries and checks
+GitHub for the latest stable release. If the game folder is not found, use
+Browse or type the folder containing Paralives.exe.
+
+Close Paralives, review the game folder and version summary, then choose
+**Install or update**. This downloads the full package and repairs missing or
+changed files. **Reinstall latest** replaces every included file. Both options
+keep your saves, mod configuration and other plugins. Start your screen reader
+and launch the game through Steam after installation completes.
+
+Use Tab and Shift+Tab to move through the controls. Alt+G focuses the game
+folder, Alt+B opens Browse, Alt+C checks for updates, Alt+I installs or updates,
+and Alt+R reinstalls. The status box and progress log can be reviewed with the
+keyboard. During an operation, Cancel stops it and restores files changed by
+that attempt. If Windows denies access, the installer offers a restart as
+administrator; approve the Windows prompt yourself if you choose that option.
+
+The installer requires Windows with .NET Framework 4.8. It always checks the
+public GitHub release; public and Patreon builds are unified. Keep the EXE to
+install later updates. Logs and backups are in
+`%LOCALAPPDATA%\ParalivesAccess\Installer`, with an Open log file button in the UI.
+
+### Install the ZIP manually
+
 1. Close Paralives.
 2. Open the game's installation folder. In Steam, use Manage, Browse local files.
 3. Extract the full ParalivesAccess ZIP directly into the folder containing
